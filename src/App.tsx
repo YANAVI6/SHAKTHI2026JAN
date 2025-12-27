@@ -1,0 +1,173 @@
+import { useEffect, useState } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { useAuth } from './contexts/AuthContext';
+import ErrorBoundary from './components/shared/ErrorBoundary';
+import { ActivityMonitor } from './components/ActivityMonitor';
+
+// Layouts
+import SplashScreen from './components/SplashScreen';
+import LoginPage from './components/LoginPage';
+import SuperAdminLoginPage from './components/SuperAdminLoginPage';
+
+// Dashboards
+import SuperAdminDashboard from './components/SuperAdminDashboard';
+import { CompanyAdminDashboard } from './components/CompanyAdmin/CompanyAdminDashboard';
+
+import DashboardOverview from './pages/dashboard/DashboardOverview';
+
+// Pages
+import LandingPage from './pages/landing-page';
+import NotFound from './pages/errors/NotFound';
+
+// Providers
+import { AuthProvider, USER_STORAGE_KEY } from './contexts/AuthContext';
+import { NotificationProvider } from './contexts/NotificationContext';
+import { ConfirmationProvider } from './contexts/ConfirmationContext';
+import { CelebrationProvider } from './contexts/CelebrationContext';
+import { Toaster } from './components/ui/sonner';
+
+
+
+// Wrapper components to pass auth props
+function ConnectedSuperAdminDashboard() {
+  const { user, logout } = useAuth();
+  if (!user) return <Navigate to="/" replace />;
+  return <SuperAdminDashboard user={user} onLogout={logout} />;
+}
+
+function ConnectedCompanyAdminDashboard() {
+  const { user, logout } = useAuth();
+  if (!user) return <Navigate to="/" replace />;
+  return <CompanyAdminDashboard user={user} onLogout={logout} />;
+}
+
+export default function App() {
+  const [isInitialized, setIsInitialized] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
+
+  // Initialize auth on mount
+  useEffect(() => {
+    const initializeAuth = async () => {
+      try {
+        const storedUser = sessionStorage.getItem(USER_STORAGE_KEY);
+        if (storedUser) {
+          setCurrentUser(JSON.parse(storedUser));
+        }
+      } catch (error) {
+        console.error('Auth initialization error:', error);
+      } finally {
+        setIsLoadingAuth(false);
+        setIsInitialized(true);
+      }
+    };
+
+    initializeAuth();
+  }, []);
+
+  if (!isInitialized || isLoadingAuth) {
+    return <SplashScreen onComplete={() => { }} />;
+  }
+
+  return (
+    <ErrorBoundary>
+      <Toaster />
+      <Router>
+        <AuthProvider initialUser={currentUser}>
+          <ActivityMonitor>
+            <NotificationProvider>
+              <ConfirmationProvider>
+                <Routes>
+                  {/* Public Routes */}
+                  <Route path="/" element={<LandingPage />} />
+                  <Route path="/:tenantSlug" element={<LoginPage />} />
+                  <Route path="/tenant-login" element={<LoginPage />} />
+                  <Route path="/login" element={<Navigate to="/" replace />} />
+                  <Route path="/superadmin-login" element={<SuperAdminLoginPage />} />
+
+                  {/* Super Admin Routes */}
+                  <Route
+                    path="/superadmin/*"
+                    element={
+                      <ProtectedRoute requiredRole="SuperAdmin">
+                        <Routes>
+                          <Route path="/" element={<ConnectedSuperAdminDashboard />} />
+                          <Route path="*" element={<Navigate to="/superadmin" replace />} />
+                        </Routes>
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Company Admin Routes */}
+                  <Route
+                    path="/admin/*"
+                    element={
+                      <ProtectedRoute requiredRole="CompanyAdmin">
+                        <CelebrationProvider>
+                          <Routes>
+                            <Route path="/" element={<ConnectedCompanyAdminDashboard />} />
+                            <Route path="*" element={<Navigate to="/admin" replace />} />
+                          </Routes>
+                        </CelebrationProvider>
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* Employee/Telecaller Routes */}
+                  <Route
+                    path="/dashboard/*"
+                    element={
+                      <ProtectedRoute requiredRole={['Telecaller', 'TeamIncharge']}>
+                        <CelebrationProvider>
+                          <Routes>
+                            <Route path="/" element={<DashboardOverview />} />
+                            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                          </Routes>
+                        </CelebrationProvider>
+                      </ProtectedRoute>
+                    }
+                  />
+
+                  {/* 404 Not Found */}
+                  <Route path="*" element={<NotFound />} />
+                </Routes>
+              </ConfirmationProvider>
+            </NotificationProvider>
+          </ActivityMonitor>
+        </AuthProvider>
+      </Router>
+    </ErrorBoundary>
+  );
+}
+
+// ✅ FIXED Protected Route Component
+interface ProtectedRouteProps {
+  children: React.ReactNode;
+  requiredRole?: string | string[];
+}
+
+function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
+  // ✅ CRITICAL FIX #1: Use useAuth() hook from context (NOT undefined currentUser)
+  const { user, isAuthenticated, isLoading } = useAuth();
+
+  // Show loading state while auth checks
+  if (isLoading) {
+    return <SplashScreen onComplete={() => { }} />;
+  }
+
+  // Not authenticated - redirect to login
+  if (!isAuthenticated || !user) {
+    return <Navigate to="/" replace />;
+  }
+
+  // Check role-based access
+  if (requiredRole) {
+    const roles = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    if (!roles.includes(user.role)) {
+      console.warn(`Unauthorized access attempt: ${user.role} tried to access ${requiredRole}`);
+      return <Navigate to="/" replace />;
+    }
+  }
+
+  return children;
+}
