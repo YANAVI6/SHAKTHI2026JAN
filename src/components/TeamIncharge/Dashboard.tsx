@@ -246,7 +246,7 @@ export const Dashboard: React.FC = () => {
             </div>
           ) : (
             <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={1}>
                 <BarChart data={telecallerPerformance} layout="vertical" margin={{ left: 20, right: 40, top: 10, bottom: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" horizontal={true} vertical={false} stroke="#f3f4f6" />
                   <XAxis type="number" hide />
@@ -278,7 +278,7 @@ export const Dashboard: React.FC = () => {
             </div>
           ) : (
             <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={1}>
                 <LineChart data={collectionTrends} margin={{ left: 20, right: 20, top: 10, bottom: 10 }}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
                   <XAxis
@@ -322,7 +322,7 @@ export const Dashboard: React.FC = () => {
             </div>
           ) : (
             <div className="h-64 w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={1}>
                 <PieChart>
                   <Pie
                     data={teamCollections}
@@ -381,7 +381,7 @@ export const Dashboard: React.FC = () => {
               ) : (
                 <>
                   <div className="h-48 w-full mb-4">
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={1}>
                       <BarChart data={metrics.dispositionDistribution} margin={{ bottom: 20 }}>
                         <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-45} textAnchor="end" />
                         <YAxis tick={{ fontSize: 10 }} />
