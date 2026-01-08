@@ -273,8 +273,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
             <h4 className="text-base font-semibold text-gray-900 mb-4">Collection Trend (Last 7 Days)</h4>
-            <div className="h-[250px] w-full">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={1}>
+            <div style={{ height: '250px' }} className="w-full">
+              <ResponsiveContainer width="100%" height={250}>
                 <LineChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
@@ -291,8 +291,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
             <h4 className="text-base font-semibold text-gray-900 mb-4">New Cases (Last 7 Days)</h4>
-            <div className="h-[250px] w-full">
-              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={1}>
+            <div style={{ height: '250px' }} className="w-full">
+              <ResponsiveContainer width="100%" height={250}>
                 <BarChart data={chartData}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                   <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
@@ -313,8 +313,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
               <h4 className="text-base font-semibold text-gray-900 mb-4">Active Cases by Team</h4>
-              <div className="h-[250px] w-full">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={1}>
+              <div style={{ height: '250px' }} className="w-full">
+                <ResponsiveContainer width="100%" height={250}>
                   <PieChart>
                     <Pie
                       data={teamPerformance}
@@ -338,8 +338,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
               <h4 className="text-base font-semibold text-gray-900 mb-4">Collection by Team</h4>
-              <div className="h-[250px] w-full">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={1}>
+              <div style={{ height: '250px' }} className="w-full">
+                <ResponsiveContainer width="100%" height={250}>
                   <BarChart data={teamPerformance} layout="vertical">
                     <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
                     <XAxis type="number" stroke="#6b7280" style={{ fontSize: '12px' }} />
