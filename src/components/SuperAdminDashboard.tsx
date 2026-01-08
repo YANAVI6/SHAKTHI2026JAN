@@ -599,8 +599,8 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Company-wise Collections</h3>
-          <div style={{ height: '350px', width: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%">
+          <div style={{ minHeight: '350px', width: '100%' }}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <BarChart
                 data={tenants.map((t, i) => ({
                   name: t.name,
@@ -622,8 +622,8 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
 
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Collections Trend</h3>
-          <div style={{ height: '350px', width: '100%' }}>
-            <ResponsiveContainer width="100%" height="100%">
+          <div style={{ minHeight: '350px', width: '100%' }}>
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <LineChart
                 data={[
                   { month: 'Jan', amount: 1200000 },

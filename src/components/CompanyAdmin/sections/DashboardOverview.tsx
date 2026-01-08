@@ -273,31 +273,35 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
             <h4 className="text-base font-semibold text-gray-900 mb-4">Collection Trend (Last 7 Days)</h4>
-            <ResponsiveContainer width="100%" height={250}>
-              <LineChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
-                <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
-                <Tooltip
-                  contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
-                  formatter={(value: number | undefined) => `₹${(value || 0).toLocaleString()}`}
-                />
-                <Line type="monotone" dataKey="collection" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981', r: 4 }} />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="h-[250px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
+                  <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
+                  <Tooltip
+                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                    formatter={(value: number | undefined) => `₹${(value || 0).toLocaleString()}`}
+                  />
+                  <Line type="monotone" dataKey="collection" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981', r: 4 }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
             <h4 className="text-base font-semibold text-gray-900 mb-4">New Cases (Last 7 Days)</h4>
-            <ResponsiveContainer width="100%" height={250}>
-              <BarChart data={chartData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
-                <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
-                <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
-                <Bar dataKey="cases" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            <div className="h-[250px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                  <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
+                  <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
+                  <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
+                  <Bar dataKey="cases" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
       </div>
@@ -309,41 +313,45 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
               <h4 className="text-base font-semibold text-gray-900 mb-4">Active Cases by Team</h4>
-              <ResponsiveContainer width="100%" height={250}>
-                <PieChart>
-                  <Pie
-                    data={teamPerformance}
-                    cx="50%"
-                    cy="50%"
-                    labelLine={false}
-                    label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`}
-                    outerRadius={80}
-                    fill="#8884d8"
-                    dataKey="cases"
-                  >
-                    {teamPerformance.map((_entry, index) => (
-                      <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
+              <div className="h-[250px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={teamPerformance}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="cases"
+                    >
+                      {teamPerformance.map((_entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
               <h4 className="text-base font-semibold text-gray-900 mb-4">Collection by Team</h4>
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={teamPerformance} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis type="number" stroke="#6b7280" style={{ fontSize: '12px' }} />
-                  <YAxis dataKey="name" type="category" stroke="#6b7280" style={{ fontSize: '12px' }} width={80} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
-                    formatter={(value: number | undefined) => `₹${((value || 0) / 1000).toFixed(1)}K`}
-                  />
-                  <Bar dataKey="collection" fill="#10b981" radius={[0, 8, 8, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+              <div className="h-[250px] w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={teamPerformance} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis type="number" stroke="#6b7280" style={{ fontSize: '12px' }} />
+                    <YAxis dataKey="name" type="category" stroke="#6b7280" style={{ fontSize: '12px' }} width={80} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                      formatter={(value: number | undefined) => `₹${((value || 0) / 1000).toFixed(1)}K`}
+                    />
+                    <Bar dataKey="collection" fill="#10b981" radius={[0, 8, 8, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           </div>
         </div>
