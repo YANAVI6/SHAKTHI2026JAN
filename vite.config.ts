@@ -25,18 +25,10 @@ export default defineConfig({
     minify: 'terser',
     rollupOptions: {
       output: {
-        manualChunks: (id) => {
-          if (id.includes('node_modules')) {
-            if (id.includes('@supabase')) return 'supabase';
-            if (id.includes('recharts')) return 'recharts';
-            if (id.includes('react-router-dom')) return 'router';
-            if (id.includes('lucide-react')) return 'icons';
-            if (id.includes('framer-motion')) return 'framer';
-            if (id.includes('xlsx')) return 'excel';
-            if (id.includes('@radix-ui')) return 'radix';
-            if (id.includes('react')) return 'vendor';
-            return 'dependencies'; // Split other node_modules into a generic dependencies chunk
-          }
+        manualChunks: {
+          'vendor-core': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui': ['framer-motion', 'lucide-react', '@radix-ui/react-slot'],
+          'vendor-utils': ['@supabase/supabase-js', 'xlsx'],
         }
       }
     }

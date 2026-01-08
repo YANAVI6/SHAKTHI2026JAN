@@ -2394,5 +2394,48 @@ export const customerCaseService = {
       console.error('Unexpected error in getTodayCallbackCases:', error);
       return [];
     }
+  },
+
+  async getGlobalStats() {
+    try {
+      const { data: cases, error } = await supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .select('total_collected_amount');
+
+      if (error) throw error;
+
+      const totalCollected = (cases || []).reduce((sum, c) => sum + (c.total_collected_amount || 0), 0);
+
+      const { data: logs, error: logsError } = await supabase
+        .from(CASE_CALL_LOG_TABLE)
+        .select('created_at, amount_collected')
+        .order('created_at', { ascending: false });
+
+      if (logsError) throw logsError;
+
+      // Group collections by month for trend
+      const monthlyCollections: Record<string, number> = {};
+      logs?.forEach(log => {
+        if (log.amount_collected && parseFloat(log.amount_collected) > 0) {
+          const date = new Date(log.created_at);
+          const monthKey = date.toLocaleString('default', { month: 'short' });
+          monthlyCollections[monthKey] = (monthlyCollections[monthKey] || 0) + parseFloat(log.amount_collected);
+        }
+      });
+
+      const trend = Object.entries(monthlyCollections).map(([month, amount]) => ({
+        month,
+        amount
+      })).slice(-6); // Last 6 months
+
+      return {
+        totalCollected,
+        trend,
+        recentLogs: logs?.slice(0, 10) || []
+      };
+    } catch (error) {
+      console.error('Error fetching global stats:', error);
+      return { totalCollected: 0, trend: [], recentLogs: [] };
+    }
   }
 };

@@ -320,6 +320,13 @@ export const employeeService = {
         'EMP ID': 'EMP002',
         'Role': 'TeamIncharge',
         'Status': 'active'
+      },
+      {
+        'Name': 'Admin User',
+        'Mobile': '+91 98765 43212',
+        'EMP ID': 'ADM001',
+        'Role': 'Admin',
+        'Status': 'active'
       }
     ];
 
@@ -404,7 +411,7 @@ export const employeeService = {
           mobile: String(data[i].Mobile || '').trim(),
           empId: String(data[i]['EMP ID'] || '').trim(),
           password: Math.random().toString(36).slice(-8), // Generate random password
-          role: String(data[i].Role || '').trim() as 'Telecaller' | 'TeamIncharge',
+          role: String(data[i].Role || '').trim() as 'Telecaller' | 'TeamIncharge' | 'Admin',
         };
 
         validEmployees.push(employeeData);
@@ -479,8 +486,8 @@ export const employeeService = {
     }
 
     // Validate role
-    if (!['Telecaller', 'TeamIncharge'].includes(role.trim())) {
-      return `Row ${rowIndex + 1}: Role must be either 'Telecaller' or 'TeamIncharge'`;
+    if (!['Telecaller', 'TeamIncharge', 'Admin'].includes(role.trim())) {
+      return `Row ${rowIndex + 1}: Role must be either 'Telecaller', 'TeamIncharge' or 'Admin'`;
     }
 
     // Validate status if provided

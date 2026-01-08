@@ -3,6 +3,7 @@ import Layout from './Layout';
 import { getAdminsByTenantId, createAdmin, updateAdmin, deleteAdmin, resetAdminPassword, toggleAdminStatus } from '../utils/adminManagement';
 import { getAllTenants, createTenant, updateTenant, deleteTenant, checkSlugAvailability, sanitizeSlug, Tenant } from '../utils/simplifiedTenantManagement';
 import { TenantInsert } from '../models/tenant.model';
+import { customerCaseService } from '../services/customerCaseService';
 import { getDomainConfig } from '../config/domain';
 import { usePageConfig, getRoleBasedTitle } from '../utils/pageUtils';
 import { CompanyAdmin, CreateAdminRequest, UpdateAdminRequest } from '../types/admin';
@@ -118,8 +119,6 @@ interface SuperAdminDashboardProps {
 }
 
 
-// TODO: Replace with real activity data from API
-const MOCK_ACTIVITIES: Array<{ company: string; action: string; status: string }> = [];
 
 const SYSTEM_STATUSES = [
   { label: 'Server Status', status: 'Online', icon: <CheckCircle className="w-4 h-4 text-green-500 mr-2" /> },
@@ -139,6 +138,15 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
   const [showCompanyModal, setShowCompanyModal] = useState(false);
   const [editingTenant, setEditingTenant] = useState<Tenant | null>(null);
   const [viewingTenant, setViewingTenant] = useState<Tenant | null>(null);
+  const [globalStats, setGlobalStats] = useState<{
+    totalCollected: number;
+    trend: Array<{ month: string, amount: number }>;
+    recentActivities: Array<{ company: string, action: string, status: string }>;
+  }>({
+    totalCollected: 0,
+    trend: [],
+    recentActivities: []
+  });
 
   // Set dynamic page title and meta tags
   usePageConfig('superadmin', getRoleBasedTitle(user?.role, viewingTenant?.name));
@@ -185,7 +193,25 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
     };
 
     loadTenants();
+    loadGlobalStats();
   }, []);
+
+  const loadGlobalStats = async () => {
+    const stats = await customerCaseService.getGlobalStats();
+
+    // Map recent logs to activity items
+    const activities = stats.recentLogs.map(log => ({
+      company: 'System',
+      action: `Payment of ₹${parseFloat(log.amount_collected || '0').toLocaleString()} collected`,
+      status: 'success'
+    }));
+
+    setGlobalStats({
+      totalCollected: stats.totalCollected,
+      trend: stats.trend,
+      recentActivities: activities
+    });
+  };
 
   // Load admins when viewing tenant changes
   useEffect(() => {
@@ -573,25 +599,25 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
           icon={<Building2 className="w-6 h-6 text-white" />}
           title="Total Tenants"
           value={tenants.length}
-          color="bg-blue-500"
+          color="bg-blue-600"
         />
         <KPICard
-          icon={<UserCheck className="w-6 h-6 text-white" />}
-          title="Active Tenants"
-          value={tenants.filter(t => t.status === 'active').length}
-          color="bg-green-500"
+          icon={<DollarSign className="w-6 h-6 text-white" />}
+          title="Total Collections"
+          value={`₹${(globalStats.totalCollected / 100000).toFixed(1)}L`}
+          color="bg-green-600"
         />
         <KPICard
           icon={<Phone className="w-6 h-6 text-white" />}
           title="Total Connections"
           value={tenants.reduce((sum, t) => sum + (t.maxConnections || 0), 0)}
-          color="bg-purple-500"
+          color="bg-purple-600"
         />
         <KPICard
-          icon={<DollarSign className="w-6 h-6 text-white" />}
+          icon={<UserCheck className="w-6 h-6 text-white" />}
           title="Total Users"
           value={tenants.reduce((sum, t) => sum + (t.maxUsers || 0), 0)}
-          color="bg-red-500"
+          color="bg-red-600"
         />
       </div>
 
@@ -625,13 +651,13 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
           <div style={{ height: '350px', width: '100%' }}>
             <ResponsiveContainer width="100%" height={350}>
               <LineChart
-                data={[
-                  { month: 'Jan', amount: 1200000 },
-                  { month: 'Feb', amount: 1500000 },
-                  { month: 'Mar', amount: 1900000 },
-                  { month: 'Apr', amount: 2200000 },
-                  { month: 'May', amount: 2800000 },
-                  { month: 'Jun', amount: 3200000 },
+                data={globalStats.trend.length > 0 ? globalStats.trend : [
+                  { month: 'Jan', amount: 0 },
+                  { month: 'Feb', amount: 0 },
+                  { month: 'Mar', amount: 0 },
+                  { month: 'Apr', amount: 0 },
+                  { month: 'May', amount: 0 },
+                  { month: 'Jun', amount: 0 },
                 ]}
                 margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
               >
@@ -659,14 +685,18 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Recent Company Activities</h3>
           <div className="space-y-4">
-            {MOCK_ACTIVITIES.map((activity, index) => (
-              <ActivityItem
-                key={index}
-                company={activity.company}
-                action={activity.action}
-                status={activity.status}
-              />
-            ))}
+            {globalStats.recentActivities.length > 0 ? (
+              globalStats.recentActivities.map((activity, index) => (
+                <ActivityItem
+                  key={index}
+                  company={activity.company}
+                  action={activity.action}
+                  status={activity.status}
+                />
+              ))
+            ) : (
+              <p className="text-sm text-gray-500 text-center py-4">No recent activities</p>
+            )}
           </div>
         </div>
 

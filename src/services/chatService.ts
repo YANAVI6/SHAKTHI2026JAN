@@ -231,25 +231,28 @@ export class ChatService {
         created_by: string;
     }): Promise<ChatChannel> {
         try {
-            const { data: channel, error } = await supabase
+            const { data: channels, error } = await supabase
                 .from('chat_channels')
                 .insert(data)
-                .select()
-                .single();
+                .select();
+
+            const channel = channels?.[0];
 
             if (error) {
                 // If channel already exists (409 conflict), fetch and return it
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                if (error.code === '23505' || error.code === '409' || (error as any)?.code === '23503') {
+                if (error.code === '23505' || error.code === '409') {
                     // Try to find the existing channel
                     // We need to match based on unique constraints: tenant_id + name + type
-                    const { data: existingChannel, error: fetchError } = await supabase
+                    const { data: existingChannels, error: fetchError } = await supabase
                         .from('chat_channels')
                         .select('*')
                         .eq('tenant_id', data.tenant_id)
                         .eq('name', data.name)
-                        .eq('type', data.type)
-                        .single();
+                        .eq('type', data.type);
+
+                    // If multiple exist (due to previous lack of unique constraint), take the first one
+                    const existingChannel = existingChannels?.[0];
 
                     if (existingChannel) {
                         // Ensure creator is joined even if channel existed
@@ -313,7 +316,7 @@ export class ChatService {
             const channelName = `DM-${u1}-${u2}`;
 
             try {
-                const { data: newChannel, error: createError } = await supabase
+                const { data: channels, error: createError } = await supabase
                     .from('chat_channels')
                     .insert({
                         tenant_id: tenantId,
@@ -321,9 +324,9 @@ export class ChatService {
                         type: 'direct',
                         created_by: userId1
                     })
-                    .select()
-                    .single();
+                    .select();
 
+                const newChannel = channels?.[0];
                 if (createError) throw createError;
 
                 // Add both users as members
@@ -340,13 +343,14 @@ export class ChatService {
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 const errCode = (createError as any)?.code;
                 if (errCode === '23505' || errCode === '409') {
-                    const { data: existingChannel, error: fetchError } = await supabase
+                    const { data: existingChannels, error: fetchError } = await supabase
                         .from('chat_channels')
                         .select('*')
                         .eq('tenant_id', tenantId)
                         .eq('name', channelName)
-                        .eq('type', 'direct')
-                        .single();
+                        .eq('type', 'direct');
+
+                    const existingChannel = existingChannels?.[0];
 
                     if (existingChannel) {
                         // Ensure both are members (in case one side failed previously)

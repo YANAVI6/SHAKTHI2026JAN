@@ -11,6 +11,7 @@ interface DashboardOverviewProps {
   products: string[];
   teamIncharges: Employee[];
   telecallers: Employee[];
+  admins: Employee[];
 }
 
 interface DashboardStats {
@@ -43,6 +44,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   products,
   teamIncharges,
   telecallers,
+  admins,
 }) => {
   const { user } = useAuth();
   const [stats, setStats] = useState<DashboardStats>({
@@ -95,8 +97,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
         const { data: todayLogs } = await supabase
           .from('case_call_logs')
-          .select('amount_collected, customer_cases!inner(tenant_id)')
-          .eq('customer_cases.tenant_id', user.tenantId)
+          .select('amount_collected')
+          .eq('tenant_id', user.tenantId)
           .gte('created_at', today.toISOString())
           .gt('amount_collected', 0);
 
@@ -112,8 +114,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         // Fetch overdue callbacks
         const { count: overdueCallbacks } = await supabase
           .from('case_call_logs')
-          .select('*, customer_cases!inner(tenant_id)', { count: 'exact', head: true })
-          .eq('customer_cases.tenant_id', user.tenantId)
+          .select('*', { count: 'exact', head: true })
+          .eq('tenant_id', user.tenantId)
           .eq('call_status', 'CALL_BACK')
           .eq('callback_completed', false)
           .lt('callback_datetime', new Date().toISOString());
@@ -132,8 +134,8 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
 
           const { data: dayLogs } = await supabase
             .from('case_call_logs')
-            .select('amount_collected, customer_cases!inner(tenant_id)')
-            .eq('customer_cases.tenant_id', user.tenantId)
+            .select('amount_collected')
+            .eq('tenant_id', user.tenantId)
             .gte('created_at', date.toISOString())
             .lt('created_at', nextDay.toISOString())
             .gt('amount_collected', 0);
@@ -167,14 +169,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           const teamPerfPromises = teams.slice(0, 6).map(async (team) => {
             const { count: teamCases } = await supabase
               .from('customer_cases')
-              .select('*, employees!inner(team_id)', { count: 'exact', head: true })
-              .eq('employees.team_id', team.id)
+              .select('*', { count: 'exact', head: true })
+              .eq('team_id', team.id)
               .neq('case_status', 'closed');
 
             const { data: teamCollectionData } = await supabase
               .from('customer_cases')
-              .select('total_collected_amount, employees!inner(team_id)')
-              .eq('employees.team_id', team.id);
+              .select('total_collected_amount')
+              .eq('team_id', team.id);
 
             const teamCollection = teamCollectionData?.reduce((sum, c) => sum + (c.total_collected_amount || 0), 0) || 0;
 
@@ -214,10 +216,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       {/* Employee Metrics */}
       <div>
         <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Team Overview</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <MetricCard title="Total Employees" value={activeEmployees.length} icon={Users} color="blue" />
+          <MetricCard title="Admins" value={admins.length} icon={UserCheck} color="purple" />
           <MetricCard title="Products" value={products.length} icon={Briefcase} color="green" />
-          <MetricCard title="Team Incharges" value={teamIncharges.length} icon={UserCheck} color="purple" />
+          <MetricCard title="Incharges" value={teamIncharges.length} icon={UserCheck} color="blue" />
           <MetricCard title="Telecallers" value={telecallers.length} icon={Phone} color="orange" />
         </div>
       </div>
@@ -273,34 +276,48 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
             <h4 className="text-base font-semibold text-gray-900 mb-4">Collection Trend (Last 7 Days)</h4>
-            <div style={{ height: '250px' }} className="w-full">
-              <ResponsiveContainer width="100%" height={250}>
-                <LineChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
-                  <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
-                  <Tooltip
-                    contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
-                    formatter={(value: number | undefined) => `₹${(value || 0).toLocaleString()}`}
-                  />
-                  <Line type="monotone" dataKey="collection" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981', r: 4 }} />
-                </LineChart>
-              </ResponsiveContainer>
+            <div style={{ height: '250px' }} className="w-full flex items-center justify-center">
+              {chartData.some(d => d.collection > 0) ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
+                    <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
+                    <Tooltip
+                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                      formatter={(value: number | undefined) => `₹${(value || 0).toLocaleString()}`}
+                    />
+                    <Line type="monotone" dataKey="collection" stroke="#10b981" strokeWidth={3} dot={{ fill: '#10b981', r: 4 }} />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-center text-gray-500">
+                  <TrendingUp className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                  <p className="text-sm">No collection data for last 7 days</p>
+                </div>
+              )}
             </div>
           </div>
 
           <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
             <h4 className="text-base font-semibold text-gray-900 mb-4">New Cases (Last 7 Days)</h4>
-            <div style={{ height: '250px' }} className="w-full">
-              <ResponsiveContainer width="100%" height={250}>
-                <BarChart data={chartData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                  <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
-                  <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
-                  <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
-                  <Bar dataKey="cases" fill="#3b82f6" radius={[8, 8, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
+            <div style={{ height: '250px' }} className="w-full flex items-center justify-center">
+              {chartData.some(d => d.cases > 0) ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={chartData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                    <XAxis dataKey="date" stroke="#6b7280" style={{ fontSize: '12px' }} />
+                    <YAxis stroke="#6b7280" style={{ fontSize: '12px' }} />
+                    <Tooltip contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }} />
+                    <Bar dataKey="cases" fill="#3b82f6" radius={[8, 8, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="text-center text-gray-500">
+                  <Briefcase className="w-12 h-12 mx-auto mb-2 opacity-20" />
+                  <p className="text-sm">No new cases in last 7 days</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -313,44 +330,56 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
               <h4 className="text-base font-semibold text-gray-900 mb-4">Active Cases by Team</h4>
-              <div style={{ height: '250px' }} className="w-full">
-                <ResponsiveContainer width="100%" height={250}>
-                  <PieChart>
-                    <Pie
-                      data={teamPerformance}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`}
-                      outerRadius={80}
-                      fill="#8884d8"
-                      dataKey="cases"
-                    >
-                      {teamPerformance.map((_entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                    <Tooltip />
-                  </PieChart>
-                </ResponsiveContainer>
+              <div style={{ height: '250px' }} className="w-full flex items-center justify-center">
+                {teamPerformance.some(t => t.cases > 0) ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <PieChart>
+                      <Pie
+                        data={teamPerformance}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => `${name}: ${((percent ?? 0) * 100).toFixed(0)}%`}
+                        outerRadius={80}
+                        fill="#8884d8"
+                        dataKey="cases"
+                      >
+                        {teamPerformance.map((_entry, index) => (
+                          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                        ))}
+                      </Pie>
+                      <Tooltip />
+                    </PieChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center text-gray-400">
+                    <p className="text-sm">No cases assigned to teams</p>
+                  </div>
+                )}
               </div>
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
               <h4 className="text-base font-semibold text-gray-900 mb-4">Collection by Team</h4>
-              <div style={{ height: '250px' }} className="w-full">
-                <ResponsiveContainer width="100%" height={250}>
-                  <BarChart data={teamPerformance} layout="vertical">
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis type="number" stroke="#6b7280" style={{ fontSize: '12px' }} />
-                    <YAxis dataKey="name" type="category" stroke="#6b7280" style={{ fontSize: '12px' }} width={80} />
-                    <Tooltip
-                      contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
-                      formatter={(value: number | undefined) => `₹${((value || 0) / 1000).toFixed(1)}K`}
-                    />
-                    <Bar dataKey="collection" fill="#10b981" radius={[0, 8, 8, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <div style={{ height: '250px' }} className="w-full flex items-center justify-center">
+                {teamPerformance.some(t => t.collection > 0) ? (
+                  <ResponsiveContainer width="100%" height={250}>
+                    <BarChart data={teamPerformance} layout="vertical">
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis type="number" stroke="#6b7280" style={{ fontSize: '12px' }} />
+                      <YAxis dataKey="name" type="category" stroke="#6b7280" style={{ fontSize: '12px' }} width={80} />
+                      <Tooltip
+                        contentStyle={{ backgroundColor: '#fff', border: '1px solid #e5e7eb', borderRadius: '8px' }}
+                        formatter={(value: number | undefined) => `₹${((value || 0) / 1000).toFixed(1)}K`}
+                      />
+                      <Bar dataKey="collection" fill="#10b981" radius={[0, 8, 8, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <div className="text-center text-gray-400">
+                    <p className="text-sm">No collections by teams yet</p>
+                  </div>
+                )}
               </div>
             </div>
           </div>

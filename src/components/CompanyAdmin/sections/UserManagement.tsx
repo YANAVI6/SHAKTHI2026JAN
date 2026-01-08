@@ -42,7 +42,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
   const filteredEmployees = useMemo(() => {
     const filtered = employees.filter(emp => {
       const matchesSearch = emp.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                            emp.empId.toLowerCase().includes(searchQuery.toLowerCase());
+        emp.empId.toLowerCase().includes(searchQuery.toLowerCase());
       const matchesRole = roleFilter === 'All' || emp.role === roleFilter;
       const matchesStatus = statusFilter === 'All' || emp.status === statusFilter;
 
@@ -114,10 +114,13 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       key: 'role',
       header: 'Role',
       render: (emp: Employee) => (
-        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-          emp.role === 'TeamIncharge' ? 'bg-blue-100 text-blue-800' : 'bg-green-100 text-green-800'
-        }`}>
-          {emp.role === 'TeamIncharge' ? 'Team Incharge' : 'Telecaller'}
+        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${emp.role === 'TeamIncharge' ? 'bg-blue-100 text-blue-800' :
+            emp.role === 'Admin' ? 'bg-purple-100 text-purple-800' :
+              'bg-green-100 text-green-800'
+          }`}>
+          {emp.role === 'TeamIncharge' ? 'Team Incharge' :
+            emp.role === 'Admin' ? 'Admin' :
+              'Telecaller'}
         </span>
       ),
     },
@@ -132,9 +135,8 @@ export const UserManagement: React.FC<UserManagementProps> = ({
       key: 'status',
       header: 'Status',
       render: (emp: Employee) => (
-        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-          emp.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-        }`}>
+        <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${emp.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+          }`}>
           {emp.status === 'active' ? 'Active' : 'Inactive'}
         </span>
       ),
@@ -290,6 +292,7 @@ export const UserManagement: React.FC<UserManagementProps> = ({
                 className="px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm min-w-[140px]"
               >
                 <option value="All">All Roles</option>
+                <option value="Admin">Admin</option>
                 <option value="TeamIncharge">Team Incharge</option>
                 <option value="Telecaller">Telecaller</option>
               </select>

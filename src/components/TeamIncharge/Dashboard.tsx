@@ -140,6 +140,29 @@ export const Dashboard: React.FC = () => {
         console.error('Error fetching calls today:', error);
       }
 
+      // Fetch disposition distribution
+      try {
+        const { data: dispositionData } = await supabase
+          .from('case_call_logs')
+          .select('call_status')
+          .eq('tenant_id', user.tenantId);
+
+        if (dispositionData) {
+          const counts: Record<string, number> = {};
+          dispositionData.forEach(log => {
+            const status = log.call_status || 'Unknown';
+            counts[status] = (counts[status] || 0) + 1;
+          });
+
+          newMetrics.dispositionDistribution = Object.entries(counts)
+            .map(([name, value]) => ({ name, value }))
+            .sort((a, b) => b.value - a.value)
+            .slice(0, 8); // Top 8 dispositions
+        }
+      } catch (error) {
+        console.error('Error fetching disposition distribution:', error);
+      }
+
       setMetrics(newMetrics);
 
       // Fetch team collections for donut chart

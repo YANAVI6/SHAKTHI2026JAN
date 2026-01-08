@@ -128,6 +128,10 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
     () => employees.filter((emp: Employee) => emp.role === 'Telecaller'),
     [employees]
   );
+  const admins = useMemo(
+    () => employees.filter((emp: Employee) => emp.role === 'Admin'),
+    [employees]
+  );
 
   // Event handlers with useCallback
   const handleCreateEmployee = useCallback(async (employeeData: Partial<Employee>) => {
@@ -248,6 +252,7 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
             products={products}
             teamIncharges={teamIncharges}
             telecallers={telecallers}
+            admins={admins}
           />
         );
       case 'live-monitoring':
@@ -311,6 +316,7 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
             products={products}
             teamIncharges={teamIncharges}
             telecallers={telecallers}
+            admins={admins}
           />
         );
     }

@@ -82,7 +82,7 @@ export const LiveMonitoring: React.FC = () => {
 
             let targetTeamIds: string[] = [];
 
-            if (user.role === 'CompanyAdmin') {
+            if (user.role === 'CompanyAdmin' || user.role === 'Admin') {
                 const teams = await TeamService.getTeams(user.tenantId);
                 targetTeamIds = teams.filter(t => t.status === 'active').map(t => t.id);
             } else if (user.teamId) {

@@ -61,7 +61,8 @@ export class ChatSyncService {
             if (role) query = query.eq('role', role);
             if (type === 'general') query = query.eq('name', name);
 
-            const { data } = await query.maybeSingle();
+            const { data: channels } = await query;
+            const data = channels?.[0];
 
             if (data) return data;
 

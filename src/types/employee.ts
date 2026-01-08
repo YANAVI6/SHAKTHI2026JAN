@@ -1,4 +1,4 @@
-export type EmployeeRole = 'TeamIncharge' | 'Telecaller';
+export type EmployeeRole = 'TeamIncharge' | 'Telecaller' | 'Admin';
 export type EmployeeStatus = 'active' | 'inactive';
 
 export interface Employee {

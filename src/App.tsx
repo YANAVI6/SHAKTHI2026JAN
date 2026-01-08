@@ -109,7 +109,7 @@ export default function App() {
                     <Route
                       path="/admin/*"
                       element={
-                        <ProtectedRoute requiredRole="CompanyAdmin">
+                        <ProtectedRoute requiredRole={["CompanyAdmin", "Admin"]}>
                           <CelebrationProvider>
                             <Routes>
                               <Route path="/" element={<ConnectedCompanyAdminDashboard />} />
@@ -124,7 +124,7 @@ export default function App() {
                     <Route
                       path="/dashboard/*"
                       element={
-                        <ProtectedRoute requiredRole={['Telecaller', 'TeamIncharge']}>
+                        <ProtectedRoute requiredRole={['Telecaller', 'TeamIncharge', 'Admin']}>
                           <CelebrationProvider>
                             <Routes>
                               <Route path="/" element={<DashboardOverview />} />
