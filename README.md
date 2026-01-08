@@ -1,4 +1,4 @@
-# Shakti CRM - Customer Relationship Management System
+# Shakthi CRM - Customer Relationship Management System
 
 A comprehensive, multi-tenant CRM system designed for telecalling teams to manage customer cases, track performance, and improve collection efficiency.
 
@@ -65,8 +65,8 @@ A comprehensive, multi-tenant CRM system designed for telecalling teams to manag
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/YOUR_USERNAME/shakti-crm.git
-cd shakti-crm
+git clone https://github.com/YOUR_USERNAME/shakthi-crm.git
+cd shakthi-crm
 ```
 
 2. Install dependencies:
@@ -103,7 +103,7 @@ npm run dev
 ## Project Structure
 
 ```
-shakti-crm/
+shakthi-crm/
 ├── src/
 │   ├── components/       # React components
 │   │   ├── CompanyAdmin/ # Company admin dashboard
@@ -253,7 +253,7 @@ This project is proprietary software. All rights reserved.
 ## Support
 
 For support and queries:
-- Email: support@shakticroms.com
+- Email: support@shakthicroms.com
 - Documentation: See `COMPLETE_SETUP_GUIDE.md`
 
 ## Acknowledgments
@@ -265,4 +265,4 @@ For support and queries:
 
 ---
 
-**Made with ❤️ by the Shakti CRM Team**
+**Made with ❤️ by the Shakthi CRM Team**

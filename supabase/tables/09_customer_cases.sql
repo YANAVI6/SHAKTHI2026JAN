@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS customer_cases (
 
   -- Assignment
   assigned_employee_id text NOT NULL,
-  team_id uuid REFERENCES teams(id) ON DELETE SET NULL,
+  team_id uuid REFERENCES teams(id) ON DELETE CASCADE,
   telecaller_id uuid REFERENCES employees(id) ON DELETE SET NULL,
   product_name text,
 

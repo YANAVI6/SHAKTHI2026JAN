@@ -12,6 +12,13 @@ vi.mock('../../contexts/AuthContext', () => ({
     }))
 }));
 
+// Mock react-resizable-panels to avoid JSDOM style errors
+vi.mock('react-resizable-panels', () => ({
+    Group: ({ children }: { children: React.ReactNode }) => <div data-testid="resize-group">{children}</div>,
+    Panel: ({ children }: { children: React.ReactNode }) => <div data-testid="resize-panel">{children}</div>,
+    Separator: () => <div data-testid="resize-handle" />,
+}));
+
 describe('Layout and PageHeader', () => {
     describe('Layout', () => {
         const mockUser = { name: 'John Doe', role: 'CompanyAdmin' };
@@ -37,7 +44,7 @@ describe('Layout and PageHeader', () => {
                 </BrowserRouter>
             );
 
-            expect(await screen.findByText('Shakti')).toBeInTheDocument();
+            expect(await screen.findByText('Shakthi')).toBeInTheDocument();
             expect(screen.getByText('Dashboard')).toBeInTheDocument();
             expect(screen.getByText('Users')).toBeInTheDocument();
         });

@@ -14,7 +14,7 @@ const SuperAdminLoginPage: React.FC = () => {
     usePageConfig('login', 'Super Admin Login');
 
     // Guard: Check for secret access flag
-    const hasAccess = sessionStorage.getItem('shakti_sa_access');
+    const hasAccess = sessionStorage.getItem('shakthi_sa_access');
     if (hasAccess !== 'true') {
         return <Navigate to="/" replace />;
     }
@@ -72,7 +72,7 @@ const SuperAdminLoginPage: React.FC = () => {
 
                     {/* Brand Name with Custom Styling */}
                     <h1 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-white via-purple-200 to-blue-200 mb-2 tracking-tight">
-                        Shakti
+                        Shakthi
                     </h1>
 
                     {/* Tagline */}

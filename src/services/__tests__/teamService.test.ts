@@ -113,6 +113,12 @@ describe('TeamService', () => {
 
             (supabase.from as unknown as Mock).mockImplementation((table: string) => {
                 if (table === 'teams') return teamBuilder;
+                // Fix: Handle team_telecallers table which connects teams to employees
+                if (table === 'team_telecallers') {
+                    // Service expects: { employees: { id: '...' } }
+                    const junctionData = mockTelecallers.map(t => ({ employees: t }));
+                    return createMockBuilder(junctionData);
+                }
                 if (table === 'employees') return employeeBuilder;
                 if (table === 'customer_cases') return countBuilder;
                 return createMockBuilder([]);

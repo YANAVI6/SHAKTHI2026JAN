@@ -73,7 +73,7 @@ export class ErrorBoundary extends React.Component<Props, State> {
                         </p>
 
                         {/* Dev Error Details */}
-                        {process.env.NODE_ENV === 'development' && this.state.error && (
+                        {(process.env.NODE_ENV === 'development' || process.env.NODE_ENV === 'test') && this.state.error && (
                             <div className="bg-gray-100 rounded p-4 mb-6 max-h-40 overflow-auto border border-gray-300">
                                 <p className="text-sm font-mono text-gray-700 mb-2 break-words">
                                     <strong>Error:</strong> {this.state.error.toString()}

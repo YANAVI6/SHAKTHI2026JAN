@@ -6,9 +6,9 @@ import {
   Title,
   Tooltip,
   Legend,
-  Chart,
-  TooltipItem
+  Chart
 } from 'chart.js';
+import type { TooltipItem } from 'chart.js';
 
 ChartJS.register(
   ArcElement,

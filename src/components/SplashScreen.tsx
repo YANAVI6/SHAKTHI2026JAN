@@ -139,7 +139,7 @@ export default function SplashScreen({ onComplete }: SplashScreenProps) {
                     className="text-center"
                 >
                     <h1 className="text-5xl font-black text-white mb-2 tracking-tight">
-                        Shakti
+                        Shakthi
                     </h1>
                     <motion.p
                         initial={{ opacity: 0 }}

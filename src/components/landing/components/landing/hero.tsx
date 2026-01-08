@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import { ArrowRight, Shield, Zap, Clock, TrendingUp, CheckCircle2 } from "lucide-react";
+import { TiltCard } from "./TiltCard";
 
 const DashboardMockup = () => {
   return (
@@ -13,7 +14,7 @@ const DashboardMockup = () => {
           <div className="w-3 h-3 rounded-full bg-green-500/50" />
         </div>
         <div className="mx-auto bg-white/5 px-4 py-1 rounded-md text-[10px] text-gray-400 font-mono">
-          shakti-crm.app/live-monitor
+          shakthi-crm.app/live-monitor
         </div>
       </div>
 
@@ -101,7 +102,11 @@ const PTPAlertPopup = () => (
   </motion.div>
 );
 
-export default function Hero() {
+interface HeroProps {
+  onEnquiryClick?: () => void;
+}
+
+export default function Hero({ onEnquiryClick }: HeroProps) {
   return (
     <section className="pt-32 pb-20 lg:pt-40 lg:pb-32 overflow-hidden relative">
       {/* Background Decorative Elements */}
@@ -196,6 +201,7 @@ export default function Hero() {
               <div className="flex flex-col sm:flex-row gap-4 mb-12">
                 <Button
                   size="lg"
+                  onClick={onEnquiryClick}
                   className="h-16 px-10 bg-indigo-600 hover:bg-indigo-700 text-white text-lg font-bold rounded-2xl shadow-xl shadow-indigo-200 transition-all hover:scale-[1.02]"
                 >
                   Start 7-Day Free Trial
@@ -237,14 +243,23 @@ export default function Hero() {
               transition={{ duration: 1 }}
               className="relative z-10"
             >
-              <DashboardMockup />
-              <PTPAlertPopup />
+              <TiltCard scale={1} maxTilt={5}>
+                <DashboardMockup />
+              </TiltCard>
+
+              <motion.div
+                style={{ y: -40, x: 20, z: 50 }}
+                whileHover={{ scale: 1.1, z: 100 }}
+              >
+                <PTPAlertPopup />
+              </motion.div>
 
               {/* Secondary Element - Case Distribution Mockup */}
               <motion.div
                 initial={{ y: 20, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 transition={{ delay: 1.5 }}
+                whileHover={{ scale: 1.05, z: 80, x: -10 }}
                 className="absolute -bottom-10 -left-12 z-20 bg-white p-5 rounded-2xl shadow-2xl border border-gray-100 w-64"
               >
                 <p className="text-[10px] font-black text-gray-400 uppercase mb-4 tracking-widest">Agent Allocation</p>

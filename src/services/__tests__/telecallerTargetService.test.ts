@@ -75,11 +75,41 @@ describe('TelecallerTargetService', () => {
                 { created_at: new Date(now.getTime() - 86400000 * 2).toISOString(), amount_collected: 200 } // 2 days ago (in week)
             ];
 
-            (supabase.from as unknown as Mock).mockImplementation(() => ({
-                select: vi.fn().mockReturnThis(),
-                eq: vi.fn().mockReturnThis(),
-                order: vi.fn().mockResolvedValue({ data: mockLogs, error: null })
-            }));
+            (supabase.from as unknown as Mock).mockImplementation(() => {
+                const state = { logs: mockLogs, useCount: false };
+                const createChain = (s: typeof state) => {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const chain: any = {
+                        select: vi.fn().mockImplementation((_query, options) => {
+                            if (options?.count === 'exact') s.useCount = true;
+                            return chain;
+                        }),
+                        eq: vi.fn().mockReturnThis(),
+                        gte: vi.fn().mockImplementation((_column, value) => {
+                            const date = new Date(value);
+                            const dayAgo = new Date();
+                            dayAgo.setHours(0, 0, 0, 0);
+                            if (date >= dayAgo) {
+                                s.logs = [mockLogs[0]];
+                            } else {
+                                s.logs = mockLogs;
+                            }
+                            return chain;
+                        }),
+                        order: vi.fn().mockReturnThis(),
+                        range: vi.fn().mockReturnThis(),
+                        then: vi.fn().mockImplementation((resolve) => {
+                            if (s.useCount) {
+                                return resolve({ count: s.logs.length, error: null });
+                            }
+                            return resolve({ data: s.logs, error: null });
+                        }),
+                        catch: vi.fn().mockReturnThis()
+                    };
+                    return chain;
+                };
+                return createChain(state);
+            });
 
             const metrics = await TelecallerTargetService.getPerformanceMetrics('tel-1');
 

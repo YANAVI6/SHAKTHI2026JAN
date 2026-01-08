@@ -107,14 +107,12 @@ export class TeamService {
 
 
 
-      // Update telecallers to assign them to this team
+      // Assign telecallers to this team using the junction table
       if (teamData.telecaller_ids && teamData.telecaller_ids.length > 0) {
-
-
-        // Verify all telecallers exist and are available
+        // Verify all telecallers exist
         const { data: telecallers, error: telecallerCheckError } = await supabase
           .from(EMPLOYEE_TABLE)
-          .select('id, name, role, team_id')
+          .select('id, name, role')
           .eq('tenant_id', teamData.tenant_id)
           .eq('role', 'Telecaller')
           .in('id', teamData.telecaller_ids);
@@ -122,33 +120,23 @@ export class TeamService {
         if (telecallerCheckError) {
           console.error('Error verifying telecallers:', telecallerCheckError);
           console.warn('Team created but telecaller verification failed');
-        } else {
-          // Check if any telecallers are already assigned
-          const alreadyAssigned = telecallers?.filter(t => t.team_id !== null) || [];
-          if (alreadyAssigned.length > 0) {
-            console.warn('Some telecallers are already assigned to teams:',
-              alreadyAssigned.map(t => t.name).join(', '));
-          }
+        } else if (telecallers && telecallers.length > 0) {
+          // Insert records into team_telecallers junction table
+          const teamTelecallerRecords = telecallers.map(telecaller => ({
+            team_id: team.id,
+            telecaller_id: telecaller.id,
+            assigned_by: teamData.created_by || teamData.team_incharge_id
+          }));
 
-          // Only assign unassigned telecallers
-          const availableTelecallerIds = telecallers
-            ?.filter(t => t.team_id === null)
-            .map(t => t.id) || [];
+          const { error: assignmentError } = await supabase
+            .from('team_telecallers')
+            .insert(teamTelecallerRecords);
 
-          if (availableTelecallerIds.length > 0) {
-            const { error: updateError } = await supabase
-              .from(EMPLOYEE_TABLE)
-              .update({ team_id: team.id })
-              .in('id', availableTelecallerIds);
-
-            if (updateError) {
-              console.error('Telecaller assignment error:', updateError);
-              console.warn('Team created but telecaller assignment failed:', updateError.message);
-            } else {
-              // Assignment successful
-            }
+          if (assignmentError) {
+            console.error('Telecaller assignment error:', assignmentError);
+            console.warn('Team created but telecaller assignment failed:', assignmentError.message);
           } else {
-            console.warn('No available telecallers to assign');
+            console.log(`Successfully assigned ${telecallers.length} telecaller(s) to team ${team.name}`);
           }
         }
       }
@@ -187,10 +175,12 @@ export class TeamService {
       teamsData.map(async (team) => {
 
 
-        const { data: telecallers, error: telecallersError } = await supabase
-          .from(EMPLOYEE_TABLE)
-          .select('id, name, emp_id')
-          .eq('tenant_id', tenantId)
+        // Get telecallers for this team from the junction table
+        const { data: teamTelecallers, error: telecallersError } = await supabase
+          .from('team_telecallers')
+          .select(`
+            employees:telecaller_id(id, name, emp_id)
+          `)
           .eq('team_id', team.id);
 
         if (telecallersError) {
@@ -198,9 +188,14 @@ export class TeamService {
           return { ...team, telecallers: [], total_cases: 0 };
         }
 
+        // Extract telecaller data - Supabase returns employees as a single object, not array
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const telecallers = teamTelecallers?.map((tt: any) => tt.employees).filter(Boolean) || [];
 
 
-        const telecallerIds = telecallers?.map((t: { id: string }) => t.id) || [];
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const telecallerIds = telecallers?.map((t: any) => t.id) || [];
         let totalCases = 0;
 
         if (telecallerIds.length > 0) {
@@ -252,20 +247,33 @@ export class TeamService {
 
     // Update telecaller assignments if provided
     if (updates.telecaller_ids !== undefined) {
-      // First, remove all current assignments for this team
-      await supabase
-        .from(EMPLOYEE_TABLE)
-        .update({ team_id: null })
+      // First, remove all current assignments for this team in junction table
+      const { error: deleteError } = await supabase
+        .from('team_telecallers')
+        .delete()
         .eq('team_id', teamId);
 
-      // Then assign new telecallers
-      if (updates.telecaller_ids.length > 0) {
-        const { error: updateError } = await supabase
-          .from(EMPLOYEE_TABLE)
-          .update({ team_id: teamId })
-          .in('id', updates.telecaller_ids);
+      if (deleteError) {
+        console.error('Error removing old telecaller assignments:', deleteError);
+        throw deleteError;
+      }
 
-        if (updateError) throw updateError;
+      // Then assign new telecallers using junction table
+      if (updates.telecaller_ids.length > 0) {
+        const teamTelecallerRecords = updates.telecaller_ids.map(id => ({
+          team_id: teamId,
+          telecaller_id: id,
+          assigned_by: updates.team_incharge_id // Use current in-charge as fallback for assigned_by
+        }));
+
+        const { error: insertError } = await supabase
+          .from('team_telecallers')
+          .insert(teamTelecallerRecords);
+
+        if (insertError) {
+          console.error('Error assigning new telecallers:', insertError);
+          throw insertError;
+        }
       }
     }
 
@@ -380,6 +388,88 @@ export class TeamService {
     return data || [];
   }
 
+  /**
+   * Get all teams that a telecaller belongs to
+   */
+  static async getTelecallerTeams(telecallerId: string): Promise<Team[]> {
+    const { data, error } = await supabase
+      .from('team_telecallers')
+      .select(`
+        teams:team_id(
+          id,
+          name,
+          product_name,
+          status,
+          tenant_id,
+          team_incharge_id,
+          created_at,
+          updated_at,
+          created_by
+        )
+      `)
+      .eq('telecaller_id', telecallerId)
+      .eq('teams.status', 'active');
+
+    if (error) {
+      console.error('Error fetching telecaller teams:', error);
+      throw error;
+    }
+
+    // Extract teams from the nested structure - Supabase returns teams as a single object
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return data?.map((item: any) => item.teams).filter(Boolean) || [];
+  }
+
+  /**
+   * Get all telecallers with their team assignments (via junction table)
+   */
+  static async getAllTelecallersWithTeams(tenantId: string): Promise<Array<{
+    id: string;
+    name: string;
+    emp_id: string;
+    teams: Array<{ id: string; name: string }>;
+  }>> {
+    // First get all telecallers
+    const { data: telecallers, error: telecallersError } = await supabase
+      .from(EMPLOYEE_TABLE)
+      .select('id, name, emp_id')
+      .eq('tenant_id', tenantId)
+      .eq('role', 'Telecaller')
+      .eq('status', 'active')
+      .order('name');
+
+    if (telecallersError) throw telecallersError;
+    if (!telecallers) return [];
+
+    // Then get team assignments for each telecaller
+    const telecallersWithTeams = await Promise.all(
+      telecallers.map(async (telecaller) => {
+        const { data: teamAssignments, error: teamsError } = await supabase
+          .from('team_telecallers')
+          .select(`
+            teams:team_id(id, name)
+          `)
+          .eq('telecaller_id', telecaller.id);
+
+        if (teamsError) {
+          console.error('Error fetching teams for telecaller:', telecaller.id, teamsError);
+          return {
+            ...telecaller,
+            teams: []
+          };
+        }
+
+        return {
+          ...telecaller,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          teams: teamAssignments?.map((ta: any) => ta.teams).filter(Boolean) || []
+        };
+      })
+    );
+
+    return telecallersWithTeams;
+  }
+
   static async getTeamIncharges(tenantId: string): Promise<Pick<TeamIncharge, 'id' | 'name' | 'emp_id'>[]> {
     const { data, error } = await supabase
       .from(EMPLOYEE_TABLE)
@@ -489,6 +579,115 @@ export class TeamService {
       return teamCollections.filter(tc => tc.total_collected > 0);
     } catch (error) {
       console.error('Error in getTeamCollections:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Get team toppers - telecallers ranked by today's performance
+   */
+  static async getTeamToppers(teamId: string): Promise<Array<{
+    name: string;
+    callsDoneToday: number;
+    collectionAmount: number;
+    ptpSuccessPercent: number;
+  }>> {
+    try {
+      // Get all telecallers in this team via junction table
+      const { data: teamTelecallers, error: telecallersError } = await supabase
+        .from('team_telecallers')
+        .select(`
+          employees:telecaller_id(id, name)
+        `)
+        .eq('team_id', teamId);
+
+      if (telecallersError || !teamTelecallers || teamTelecallers.length === 0) {
+        return [];
+      }
+
+      // Extract telecaller data
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const telecallers = teamTelecallers.map((tt: any) => tt.employees).filter(Boolean);
+      const telecallerIds = telecallers.map((t: { id: string }) => t.id);
+
+      // Get today's date range
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const tomorrow = new Date(today);
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      // Get call logs for today
+      const { data: logs, error: logsError } = await supabase
+        .from('case_call_logs')
+        .select('employee_id, call_status, amount_collected')
+        .in('employee_id', telecallerIds)
+        .gte('created_at', today.toISOString())
+        .lt('created_at', tomorrow.toISOString());
+
+      if (logsError) {
+        console.error('Error fetching call logs:', logsError);
+        return [];
+      }
+
+      // Calculate metrics for each telecaller
+      const performanceMap = new Map<string, {
+        callsToday: number;
+        collected: number;
+        ptpCount: number;
+        ptpSuccess: number;
+      }>();
+
+      telecallers.forEach((t: { id: string }) => {
+        performanceMap.set(t.id, {
+          callsToday: 0,
+          collected: 0,
+          ptpCount: 0,
+          ptpSuccess: 0
+        });
+      });
+
+      logs?.forEach(log => {
+        const perf = performanceMap.get(log.employee_id);
+        if (perf) {
+          perf.callsToday++;
+          if (log.amount_collected) {
+            perf.collected += parseFloat(log.amount_collected);
+          }
+          if (log.call_status?.toLowerCase().includes('ptp')) {
+            perf.ptpCount++;
+            // Consider PTP successful if there's a collection or status indicates success
+            if (log.amount_collected || log.call_status?.toLowerCase().includes('success')) {
+              perf.ptpSuccess++;
+            }
+          }
+        }
+      });
+
+      // Build toppers array
+      const toppers = telecallers.map((t: { id: string; name: string }) => {
+        const perf = performanceMap.get(t.id)!;
+        return {
+          name: t.name,
+          callsDoneToday: perf.callsToday,
+          collectionAmount: Math.round(perf.collected),
+          ptpSuccessPercent: perf.ptpCount > 0
+            ? Math.round((perf.ptpSuccess / perf.ptpCount) * 100)
+            : 0
+        };
+      });
+
+      // Sort by collection amount (primary) and calls (secondary)
+      toppers.sort((a, b) => {
+        if (b.collectionAmount !== a.collectionAmount) {
+          return b.collectionAmount - a.collectionAmount;
+        }
+        return b.callsDoneToday - a.callsDoneToday;
+      });
+
+      // Return top 3
+      return toppers.slice(0, 3);
+    } catch (error) {
+      console.error('Error in getTeamToppers:', error);
       return [];
     }
   }

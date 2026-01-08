@@ -17,6 +17,10 @@ const createMockQuery = (defaultData: any = []) => ({
     limit: vi.fn().mockReturnThis(),
     maybeSingle: vi.fn().mockResolvedValue({ data: { name: 'Test' }, error: null }),
     single: vi.fn(),
+    insert: vi.fn().mockReturnThis(),
+    update: vi.fn().mockReturnThis(),
+    upsert: vi.fn().mockReturnThis(),
+    delete: vi.fn().mockReturnThis(),
     then: function (onFulfilled: (value: { data: any, error: any }) => any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         return Promise.resolve({ data: defaultData, error: null }).then(onFulfilled);
     }
@@ -27,7 +31,8 @@ vi.mock('../lib/supabase', () => ({
         from: vi.fn(() => createMockQuery([])),
         channel: vi.fn(() => ({
             on: vi.fn().mockReturnThis(),
-            subscribe: vi.fn().mockReturnThis()
+            subscribe: vi.fn().mockReturnThis(),
+            unsubscribe: vi.fn()
         })),
         removeChannel: vi.fn()
     }
@@ -66,10 +71,10 @@ vi.mock('../contexts/CelebrationContext', () => ({
 
 // Mock services
 vi.mock('../services/activityService', () => ({
-    activityService: { updateLastActive: vi.fn(), trackLogout: vi.fn() }
+    activityService: { updateLastActive: vi.fn().mockResolvedValue(undefined), trackLogout: vi.fn().mockResolvedValue(undefined) }
 }));
 vi.mock('../services/securityAuditService', () => ({
-    securityAuditService: { logLogout: vi.fn() }
+    securityAuditService: { logLogout: vi.fn().mockResolvedValue(undefined) }
 }));
 vi.mock('../services/customerCaseService', () => ({
     customerCaseService: {
@@ -107,6 +112,13 @@ vi.mock('recharts', () => ({
     PieChart: () => null,
     Pie: () => null,
     Cell: () => null
+}));
+
+// Mock react-resizable-panels
+vi.mock('react-resizable-panels', () => ({
+    Group: ({ children }: { children: React.ReactNode }) => <div data-testid="resize-group">{children}</div>,
+    Panel: ({ children }: { children: React.ReactNode }) => <div data-testid="resize-panel">{children}</div>,
+    Separator: () => <div data-testid="resize-handle" />,
 }));
 
 describe('Integration: Company Admin Dashboard Flow', () => {

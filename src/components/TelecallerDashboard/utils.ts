@@ -60,7 +60,8 @@ export const validateAmount = (amount: string): boolean => {
   return !isNaN(numAmount) && numAmount > 0;
 };
 
-export const debounce = <T extends (...args: unknown[]) => void>(
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export const debounce = <T extends (...args: any[]) => void>(
   func: T,
   wait: number
 ): ((...args: Parameters<T>) => void) => {
@@ -83,7 +84,8 @@ export const callStatusOptions: CallStatusOption[] = [
   { value: 'RTP', label: 'RTP (Refuse to Pay)' },
   { value: 'NC', label: 'NC (No Contact)' },
   { value: 'CD', label: 'CD (Call Disconnected)' },
-  { value: 'INC', label: 'INC (Incoming Call)' }
+  { value: 'INC', label: 'INC (Incoming Call)' },
+  { value: 'PAYMENT_RECEIVED', label: 'Payment Received' }
 ];
 
 export const ptpOptions: PtpOption[] = [

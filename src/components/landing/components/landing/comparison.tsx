@@ -46,7 +46,7 @@ export default function Comparison() {
             </ul>
           </motion.div>
 
-          {/* Shakti Way */}
+          {/* Shakthi Way */}
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -57,7 +57,7 @@ export default function Comparison() {
 
             <h3 className="text-2xl font-black text-white mb-8 flex items-center gap-3 relative z-10">
               <div className="w-1.5 h-8 bg-white/20 rounded-full" />
-              The Shakti Protocol
+              The Shakthi Protocol
             </h3>
             <ul className="space-y-6 relative z-10">
               {[

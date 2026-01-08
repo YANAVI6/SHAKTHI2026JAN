@@ -247,10 +247,10 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
         return;
       }
 
-      if (excelData.length > 5000) {
+      if (excelData.length > 10000) {
         showNotification(notificationHelpers.error(
           'Too Many Rows',
-          'Maximum 5000 cases allowed per upload. Please split your file.'
+          'Maximum 10000 cases allowed per upload. Please split your file.'
         ));
         return;
       }
@@ -342,7 +342,6 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
           payment_link: getValue('paymentLink'),
           remarks: getValue('remarks'),
           case_data: row,
-          status: 'new' as const,
           uploaded_by: user.id,
           assigned_employee_id: undefined,
           telecaller_id: undefined
@@ -350,8 +349,10 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
       });
 
       // Upload cases
-      setUploadProgress(50);
-      const result = await customerCaseService.createBulkCases(cases);
+      setUploadProgress(0);
+      const result = await customerCaseService.createBulkCases(cases, (progress) => {
+        setUploadProgress(progress);
+      });
       setUploadProgress(100);
       setUploadResult(result);
 
@@ -798,20 +799,33 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
                 </div>
               </div>
 
-              {/* Upload Progress */}
+              {/* Upload Progress Overlay */}
               {isLoading && (
-                <div className="bg-blue-50 rounded-lg p-4">
-                  <div className="flex items-center mb-2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600 mr-2"></div>
-                    <span className="text-blue-900 font-medium">Uploading cases...</span>
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
+                  <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl border border-gray-100 flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
+                    <div className="relative w-20 h-20 mb-6">
+                      <div className="absolute inset-0 border-4 border-gray-100 rounded-full"></div>
+                      <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
+                      <div className="absolute inset-0 flex items-center justify-center">
+                        <span className="text-xl font-bold text-blue-600">{uploadProgress}%</span>
+                      </div>
+                    </div>
+
+                    <h3 className="text-xl font-bold text-gray-900 mb-2">Uploading Cases...</h3>
+                    <p className="text-gray-500 mb-6">
+                      Please wait while we process and upload your cases. Do not close this window.
+                    </p>
+
+                    <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-300 ease-out"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                    <div className="mt-2 text-sm text-gray-400 font-medium">
+                      {uploadProgress < 100 ? 'Processing...' : 'Finalizing...'}
+                    </div>
                   </div>
-                  <div className="w-full bg-blue-200 rounded-full h-2">
-                    <div
-                      className="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                      style={{ width: `${uploadProgress}%` }}
-                    ></div>
-                  </div>
-                  <p className="text-blue-700 text-sm mt-1">{uploadProgress}% complete</p>
                 </div>
               )}
 

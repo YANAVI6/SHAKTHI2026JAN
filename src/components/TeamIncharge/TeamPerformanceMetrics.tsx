@@ -38,16 +38,20 @@ export const TeamPerformanceMetrics: React.FC = () => {
     inProgress: number;
     resolved: number;
     closed: number;
-    totalCalls: number;
     totalCollected: number;
     monthlyTarget: number;
     achievement: number;
+    ptpCount: number;
+    ptpPosValue: number;
+    rnrCount: number;
+    callbackCount: number;
+    totalCalls: number;
   } | null>(null);
   const [showCaseExplorer, setShowCaseExplorer] = useState(false);
   const { user } = useAuth();
 
   const loadTeamData = useCallback(async () => {
-    if (!user) return;
+    if (!user || !user.tenantId) return;
 
     setIsLoading(true);
     try {
@@ -83,8 +87,8 @@ export const TeamPerformanceMetrics: React.FC = () => {
             .from('employees')
             .select('id, name, emp_id, role, status')
             .eq('team_id', team.id)
-            .eq('role', 'Telecaller')
-            .eq('status', 'active');
+            .ilike('role', 'telecaller')
+            .ilike('status', 'active');
 
           if (empError) {
             console.error('Error fetching employees for team:', team.id, empError);
@@ -103,30 +107,37 @@ export const TeamPerformanceMetrics: React.FC = () => {
 
           // Fetch cases for this team in batches
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          let teamCases: any[] = [];
+          const teamCases: any[] = [];
           let casesPage = 0;
           let casesHasMore = true;
 
           while (casesHasMore) {
             let casesQuery = supabase
               .from('customer_cases')
-              .select('id, case_status, telecaller_id')
-              .eq('team_id', team.id);
+              .select('id, case_status, telecaller_id');
+            // REMOVED: .eq('team_id', team.id) -> reliable aggregation by telecaller
 
-            // Only filter by telecaller_id if we have telecallers
+            // Filter by telecaller_id
             if (telecallerIds.length > 0) {
               casesQuery = casesQuery.in('telecaller_id', telecallerIds);
+            } else {
+              // If no telecallers, fetch nothing (or cases directly assigned to team if that's a thing? Assuming telecaller-centric)
+              casesHasMore = false;
+              break;
             }
 
             const { data: casesBatch, error: casesError } = await casesQuery.range(casesPage * 1000, (casesPage + 1) * 1000 - 1);
 
             if (casesError) {
               console.error('Error fetching cases for team:', team.id, casesError);
-              break; // Stop fetching on error
+              break;
             }
 
             if (casesBatch) {
-              teamCases = [...teamCases, ...casesBatch];
+              // use push for performance
+              for (const c of casesBatch) {
+                teamCases.push(c);
+              }
               if (casesBatch.length < 1000) {
                 casesHasMore = false;
               }
@@ -182,7 +193,7 @@ export const TeamPerformanceMetrics: React.FC = () => {
           }
 
           const totalCalls = callLogsData?.length || 0;
-          const totalCollected = callLogsData?.reduce((sum, log) => sum + (log.amount_collected || 0), 0) || 0;
+          const totalCollected = callLogsData?.reduce((sum, log) => sum + (parseFloat(log.amount_collected) || 0), 0) || 0;
 
           console.log(`Call logs for ${team.name}:`, totalCalls, 'calls, Total collected:', totalCollected);
 
@@ -254,25 +265,37 @@ export const TeamPerformanceMetrics: React.FC = () => {
   // Fetch Telecallers when Team Changes
   useEffect(() => {
     const fetchTelecallers = async () => {
-      if (selectedTeamId === 'all') {
-        setTelecallers([]);
-        setSelectedTelecallerId('all');
-        return;
-      }
+      console.log('Fetching telecallers for team:', selectedTeamId);
 
-      const { data } = await supabase
+      let query = supabase
         .from('employees')
         .select('id, name')
-        .eq('team_id', selectedTeamId)
-        .eq('role', 'Telecaller')
-        .eq('status', 'active');
+        .ilike('role', 'telecaller')
+        .ilike('status', 'active');
+
+      if (selectedTeamId !== 'all') {
+        query = query.eq('team_id', selectedTeamId);
+      } else if (user?.tenantId) {
+        query = query.eq('tenant_id', user.tenantId);
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error('Error fetching telecallers:', error);
+      } else {
+        console.log('Fetched telecallers:', data);
+      }
 
       setTelecallers(data || []);
-      setSelectedTelecallerId('all');
+      // Don't reset telecaller ID automatically when fetching to preserve selection if possible
+      // setSelectedTelecallerId('all'); 
     };
 
-    fetchTelecallers();
-  }, [selectedTeamId]);
+    if (user?.tenantId) {
+      fetchTelecallers();
+    }
+  }, [selectedTeamId, user?.tenantId]);
 
   // Fetch Telecaller Metrics
   useEffect(() => {
@@ -353,7 +376,42 @@ export const TeamPerformanceMetrics: React.FC = () => {
 
         const totalCalls = logs?.length || 0;
         const totalCollected = logs?.reduce((sum, log) => sum + (parseFloat(log.amount_collected) || 0), 0) || 0;
-        const monthlyTarget = target?.monthly_collections_target || 0;
+        const monthlyTarget = typeof target?.monthly_collections_target === 'string'
+          ? parseFloat(target.monthly_collections_target)
+          : (target?.monthly_collections_target || 0);
+
+        // Calculate new metrics
+        const ptpLogs = logs?.filter(l => l.call_status === 'PTP') || [];
+        const ptpCount = ptpLogs.length;
+        const rnrCount = logs?.filter(l => l.call_status === 'RNR').length || 0;
+        const callbackCount = logs?.filter(l => l.call_status === 'CALL_BACK').length || 0;
+
+        // Calculate PTP POS Value (linking log.case_id to case.id)
+        let ptpPosValue = 0;
+        if (cases && ptpLogs.length > 0) {
+          const caseMap = new Map(cases.map(c => [c.id, c]));
+
+          ptpLogs.forEach(log => {
+            const relatedCase = caseMap.get(log.case_id);
+            if (relatedCase) {
+              // Try to find POS amount in various fields
+              let amount = 0;
+              // Check top level
+              if (relatedCase.pos_amount) amount = parseFloat(relatedCase.pos_amount);
+              else if (relatedCase.total_outstanding) amount = parseFloat(relatedCase.total_outstanding);
+              // Check case_data
+              else if (relatedCase.case_data) {
+                const cd = relatedCase.case_data;
+                const val = cd.pos_amount || cd.total_outstanding || cd['sc.pos_amount'] || cd['POS Amount'] || cd.pos || 0;
+                amount = parseFloat(String(val).replace(/,/g, ''));
+              }
+
+              if (!isNaN(amount)) {
+                ptpPosValue += amount;
+              }
+            }
+          });
+        }
 
         setTelecallerMetrics({
           totalCases,
@@ -364,7 +422,11 @@ export const TeamPerformanceMetrics: React.FC = () => {
           totalCalls,
           totalCollected,
           monthlyTarget,
-          achievement: monthlyTarget > 0 ? (totalCollected / monthlyTarget) * 100 : 0
+          achievement: monthlyTarget > 0 ? (totalCollected / monthlyTarget) * 100 : 0,
+          ptpCount,
+          ptpPosValue,
+          rnrCount,
+          callbackCount
         });
 
       } catch (error) {
@@ -397,7 +459,13 @@ export const TeamPerformanceMetrics: React.FC = () => {
       ['Total Calls Made', telecallerMetrics.totalCalls],
       ['Total Collected Amount', telecallerMetrics.totalCollected],
       ['Monthly Target', telecallerMetrics.monthlyTarget],
-      ['Achievement %', `${telecallerMetrics.achievement.toFixed(2)}%`]
+      ['Achievement %', `${telecallerMetrics.achievement.toFixed(2)}%`],
+      [],
+      ['Additional Metrics', ''],
+      ['PTP Count', telecallerMetrics.ptpCount],
+      ['PTP POS Value', telecallerMetrics.ptpPosValue],
+      ['RNR Count', telecallerMetrics.rnrCount],
+      ['Callback Count', telecallerMetrics.callbackCount]
     ].map(e => e.join(',')).join('\n');
 
     const blob = new Blob([csvContent], { type: 'text/csv' });
@@ -455,23 +523,21 @@ export const TeamPerformanceMetrics: React.FC = () => {
               </select>
             </div>
 
-            {selectedTeamId !== 'all' && (
-              <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">Telecaller:</label>
-                <select
-                  value={selectedTelecallerId}
-                  onChange={(e) => setSelectedTelecallerId(e.target.value)}
-                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]"
-                >
-                  <option value="all">All Telecallers</option>
-                  {telecallers.map(t => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-gray-700">Telecaller:</label>
+              <select
+                value={selectedTelecallerId}
+                onChange={(e) => setSelectedTelecallerId(e.target.value)}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-900 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-w-[200px]"
+              >
+                <option value="all">All Telecallers</option>
+                {telecallers.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <button
               onClick={() => setShowDebugModal(true)}
@@ -549,6 +615,24 @@ export const TeamPerformanceMetrics: React.FC = () => {
                   <div className="font-bold text-blue-900">
                     {telecallerMetrics.totalCases > 0 ? (telecallerMetrics.totalCalls / telecallerMetrics.totalCases).toFixed(1) : '0'}
                   </div>
+                </div>
+                <div className="bg-white/50 p-2 rounded">
+                  <div className="text-blue-700 text-xs">Total PTP</div>
+                  <div className="font-bold text-blue-900">{telecallerMetrics.ptpCount}</div>
+                </div>
+                <div className="bg-white/50 p-2 rounded col-span-2">
+                  <div className="flex justify-between items-center">
+                    <div className="text-blue-700 text-xs">PTP POS Value</div>
+                    <div className="font-bold text-blue-900">{formatIndianCurrency(telecallerMetrics.ptpPosValue)}</div>
+                  </div>
+                </div>
+                <div className="bg-white/50 p-2 rounded">
+                  <div className="text-blue-700 text-xs">RNR</div>
+                  <div className="font-bold text-blue-900">{telecallerMetrics.rnrCount}</div>
+                </div>
+                <div className="bg-white/50 p-2 rounded">
+                  <div className="text-blue-700 text-xs">Callbacks</div>
+                  <div className="font-bold text-blue-900">{telecallerMetrics.callbackCount}</div>
                 </div>
               </div>
             </div>

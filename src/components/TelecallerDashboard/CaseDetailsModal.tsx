@@ -41,6 +41,63 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
   const [newMobile, setNewMobile] = useState('');
   const [newAddress, setNewAddress] = useState('');
 
+  // Memoized field definitions
+  const loanFields = React.useMemo(() => [
+    { key: 'totalOutstanding', label: 'Outstanding Amount', icon: DollarSign },
+    { key: 'emi', label: 'EMI Amount', icon: DollarSign },
+    { key: 'pos', label: 'POS Amount', icon: DollarSign },
+    { key: 'caseStatus', label: 'Case Status', icon: FileText },
+    { key: 'dpd', label: 'DPD', icon: Calendar },
+    { key: 'paymentLink', label: 'Payment Link', icon: FileText, copyable: true },
+    { key: 'lastPaidDate', label: 'Last Payment Date', icon: Calendar },
+    { key: 'lastPaidAmount', label: 'Last Payment Amount', icon: DollarSign },
+    { key: 'sanctionDate', label: 'Loan Created At', icon: Calendar }
+  ], []);
+
+  const allAdditionalFields = React.useMemo(() => {
+    if (!currentCaseData) return [];
+
+    // Get custom fields from currentCaseData
+    const customFields = (currentCaseData?.custom_fields || {}) as Record<string, unknown>;
+    const customFieldsEntries = Object.entries(customFields);
+
+    // Get additional details from main case data
+    const additionalDetails = Object.entries(currentCaseData as unknown as Record<string, unknown>)
+      .filter(([key, value]) => {
+        if (!key || value === null || value === undefined || value === '' ||
+          key === 'case_data' || key === 'custom_fields' ||
+          key === 'telecaller' || key === 'team' ||
+          typeof value === 'object') {
+          return false;
+        }
+
+        const normalizeKey = (k: string) => k.toLowerCase().replace(/[\s_]+/g, '');
+        const knownKeys = [
+          // Customer and Loan fields
+          'customerName', 'loanId', 'mobileNo', 'employmentType', 'loanAmount', 'address', 'city', 'state', 'pincode',
+          'dpd', 'pos', 'emi', 'totalOutstanding', 'paymentLink', 'lastPaymentDate', 'lastPaymentAmount', 'loanCreatedAt',
+          'empId', 'id', 'remarks', 'outstandingAmount', 'emiAmount', 'posAmount', 'caseStatus',
+          'lastPaidDate', 'sanctionDate', 'lastPaidAmount', 'Last Paid Date', 'Sanction Date', 'Last Paid Amount',
+          'last payment date', 'last payment amount', 'loan created at', 'totalCollectedAmount', 'total_collected_amount',
+          'buckets', 'Buckets', 'Bucket',
+          // Database internal fields (normalized versions)
+          'tenantid', 'assignedemployeeid', 'priority', 'uploadedby', 'teamid', 'productname',
+          'createdat', 'updatedat', 'telecallerid', 'status', 'employeeid'
+        ].map(normalizeKey);
+
+        const normalizedKey = normalizeKey(key);
+        return !knownKeys.includes(normalizedKey);
+      });
+
+    // Combine both custom fields and additional details
+    return [...customFieldsEntries, ...additionalDetails];
+  }, [currentCaseData]);
+
+  const customFieldsCount = React.useMemo(() =>
+    Object.entries((currentCaseData?.custom_fields || {}) as Record<string, unknown>).length,
+    [currentCaseData]
+  );
+
   const handleStatusUpdate = () => {
     setShowLogCallModal(true);
   };
@@ -324,6 +381,10 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
       showNotification(notificationHelpers.success('Success', 'Mobile number added successfully'));
       setNewMobile('');
       setShowAddMobileModal(false);
+
+      if (onCaseUpdated) {
+        onCaseUpdated();
+      }
     } catch (error) {
       console.error('Error adding mobile:', error);
       showNotification(notificationHelpers.error('Error', 'Failed to add mobile number'));
@@ -361,6 +422,10 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
       showNotification(notificationHelpers.success('Success', 'Address added successfully'));
       setNewAddress('');
       setShowAddAddressModal(false);
+
+      if (onCaseUpdated) {
+        onCaseUpdated();
+      }
     } catch (error) {
       console.error('Error adding address:', error);
       showNotification(notificationHelpers.error('Error', 'Failed to add address'));
@@ -389,6 +454,10 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
       setCurrentCaseData(updatedCase as unknown as CustomerCase);
 
       showNotification(notificationHelpers.success('Success', 'Field deleted successfully'));
+
+      if (onCaseUpdated) {
+        onCaseUpdated();
+      }
     } catch (error) {
       console.error('Error deleting field:', error);
       showNotification(notificationHelpers.error('Error', 'Failed to delete field'));
@@ -426,70 +495,53 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
               <div className="p-6 rounded-b-xl">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
                   {(() => {
-                    const customerFields = [
+                    const customerFields: { key: string; label: string; icon: React.ElementType; valueOverride?: React.ReactNode }[] = [
                       { key: 'customerName', label: 'Customer Name', icon: User },
                       { key: 'loanId', label: 'Loan ID', icon: FileText },
                       { key: 'mobileNo', label: 'Mobile Number', icon: Phone },
+                      { key: 'buckets', label: 'Buckets', icon: FileText },
                       { key: 'employmentType', label: 'Employment Type', icon: FileText },
-                      { key: 'loanAmount', label: 'Loan Amount', icon: DollarSign }
+                      { key: 'loanAmount', label: 'Loan Amount', icon: DollarSign },
+                      { key: 'totalCollected', label: 'Total Collected', icon: CheckCircle, valueOverride: `₹${(currentCaseData?.total_collected_amount || 0).toLocaleString('en-IN')}` },
+                      {
+                        key: 'address',
+                        label: 'Address',
+                        icon: MapPin,
+                        valueOverride: (getValue('address') || getValue('city') || getValue('state') || getValue('pincode')) ? (
+                          <>
+                            {getValue('address') && <span>{String(getValue('address'))}</span>}
+                            {(getValue('city') || getValue('state') || getValue('pincode')) && (
+                              <span className="text-gray-600 block sm:inline sm:ml-1">
+                                {[getValue('city'), getValue('state'), getValue('pincode')].filter(Boolean).join(', ')}
+                              </span>
+                            )}
+                          </>
+                        ) : 'No address information available'
+                      }
                     ];
 
-                    return customerFields.map(({ key, label, icon: Icon }) => {
-                      const value = getValue(key);
+                    return customerFields.map(({ key, label, icon: Icon, valueOverride }) => {
+                      const rawValue = valueOverride || getValue(key);
+                      // Ensure value is a displayable ReactNode (handle potential objects from getValue)
+                      const value = (typeof rawValue === 'object' && !React.isValidElement(rawValue))
+                        ? JSON.stringify(rawValue)
+                        : (rawValue as React.ReactNode);
 
                       return (
-                        <div key={key} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                          <Icon className="w-4 h-4 text-blue-500 flex-shrink-0" />
+                        <div key={key} className={`flex items-start space-x-3 p-3 bg-gray-50 rounded-lg ${key === 'address' ? 'md:col-span-2' : ''}`}>
+                          <Icon className={`w-4 h-4 mt-0.5 flex-shrink-0 ${key === 'totalCollected' ? 'text-green-600' : 'text-blue-500'}`} />
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
                               {label}
                             </div>
-                            <div className="text-sm text-gray-900 break-words">
-                              {String(value)}
+                            <div className={`text-sm break-words ${key === 'totalCollected' ? 'font-bold text-green-700' : 'text-gray-900'}`}>
+                              {value}
                             </div>
                           </div>
                         </div>
                       );
                     });
                   })()}
-
-                  {/* Total Collected Amount - Special Highlight */}
-                  <div className="flex items-center space-x-3 p-3 bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg border-2 border-green-200">
-                    <CheckCircle className="w-4 h-4 text-green-600 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-green-700 uppercase tracking-wide mb-1">
-                        Total Collected
-                      </div>
-                      <div className="text-sm font-bold text-green-700">
-                        ₹{(currentCaseData?.total_collected_amount || 0).toLocaleString('en-IN')}
-                      </div>
-                    </div>
-                  </div>
-
-
-                  {/* Address Section - Always Show */}
-                  <div className="flex items-start space-x-3 p-3 bg-gray-50 rounded-lg md:col-span-2 lg:col-span-3">
-                    <MapPin className="w-4 h-4 text-blue-500 mt-0.5 flex-shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
-                        Address
-                      </div>
-                      <div className="text-sm text-gray-900 space-y-1">
-                        {(getValue('address') || getValue('city') || getValue('state') || getValue('pincode')) ? (
-                          <>
-                            {getValue('address') && <div>{String(getValue('address'))}</div>}
-                            {(getValue('city') || getValue('state') || getValue('pincode')) && (
-                              <div className="text-gray-600">
-                                {[getValue('city'), getValue('state'), getValue('pincode')].filter(Boolean).join(', ')}
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <div className="text-gray-500 italic">No address information available</div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
 
                   {/* Action Buttons Grid */}
                   <div className="md:col-span-2 lg:col-span-3 pt-6 border-t border-gray-100">
@@ -561,48 +613,35 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
               </div>
               <div className="p-6 rounded-b-xl">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
-                  {(() => {
-                    const loanFields = [
-                      { key: 'totalOutstanding', label: 'Outstanding Amount', icon: DollarSign },
-                      { key: 'emi', label: 'EMI Amount', icon: DollarSign },
-                      { key: 'pos', label: 'POS Amount', icon: DollarSign },
-                      { key: 'caseStatus', label: 'Case Status', icon: FileText },
-                      { key: 'dpd', label: 'DPD', icon: Calendar },
-                      { key: 'paymentLink', label: 'Payment Link', icon: FileText, copyable: true },
-                      { key: 'lastPaidDate', label: 'Last Payment Date', icon: Calendar },
-                      { key: 'lastPaidAmount', label: 'Last Payment Amount', icon: DollarSign },
-                      { key: 'sanctionDate', label: 'Loan Created At', icon: Calendar }
-                    ];
+                  {loanFields.map(({ key, label, icon: Icon, copyable }) => {
+                    const value = getValue(key);
 
-                    return loanFields.map(({ key, label, icon: Icon, copyable }) => {
-                      const value = getValue(key);
-
-                      return (
-                        <div key={key} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
-                          <Icon className="w-4 h-4 text-green-500 flex-shrink-0" />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
-                              {label}
-                            </div>
-                            <div className="text-sm text-gray-900 break-all flex items-center">
-                              <span className="flex-1">{value ? String(value) : <span className="text-gray-400 italic">Not provided</span>}</span>
-                              {copyable && value && (
-                                <button
-                                  onClick={() => navigator.clipboard.writeText(String(value))}
-                                  className="ml-2 text-green-600 hover:text-green-800 p-1 rounded"
-                                  title="Copy to clipboard"
-                                >
-                                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                                  </svg>
-                                </button>
-                              )}
-                            </div>
+                    return (
+                      <div key={key} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg">
+                        <Icon className="w-4 h-4 text-green-500 flex-shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
+                            {label}
+                          </div>
+                          <div className="text-sm text-gray-900 break-all flex items-center">
+                            <span className="flex-1">{value ? String(value) : <span className="text-gray-400 italic">Not provided</span>}</span>
+                            {copyable && value && (
+                              <button
+                                onClick={() => navigator.clipboard.writeText(String(value))}
+                                className="ml-2 text-green-600 hover:text-green-800 p-1 rounded"
+                                title="Copy to clipboard"
+                              >
+                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                              </button>
+                            )}
                           </div>
                         </div>
-                      );
-                    });
-                  })()}
+                      </div>
+                    );
+                  })
+                  }
                 </div>
               </div>
             </div>
@@ -617,63 +656,13 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
               </div>
               <div className="p-6 rounded-b-xl">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 h-full">
-                  {(() => {
-                    // Return early if currentCaseData is null
-                    if (!currentCaseData) {
-                      return (
-                        <div className="col-span-3 text-center py-8">
-                          <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                          <p className="text-sm text-gray-500">No additional details available</p>
-                        </div>
-                      );
-                    }
-
-                    // Get custom fields from currentCaseData
-                    const customFields = (currentCaseData?.custom_fields || {}) as Record<string, unknown>;
-                    const customFieldsEntries = Object.entries(customFields);
-
-                    // Get additional details from main case data
-                    const additionalDetails = Object.entries(currentCaseData as unknown as Record<string, unknown>)
-                      .filter(([key, value]) => {
-                        if (!key || value === null || value === undefined || value === '' ||
-                          key === 'case_data' || key === 'custom_fields' ||
-                          key === 'telecaller' || key === 'team' ||
-                          typeof value === 'object') {
-                          return false;
-                        }
-
-                        const normalizeKey = (k: string) => k.toLowerCase().replace(/[\s_]+/g, '');
-                        const knownKeys = [
-                          // Customer and Loan fields
-                          'customerName', 'loanId', 'mobileNo', 'employmentType', 'loanAmount', 'address', 'city', 'state', 'pincode',
-                          'dpd', 'pos', 'emi', 'totalOutstanding', 'paymentLink', 'lastPaymentDate', 'lastPaymentAmount', 'loanCreatedAt',
-                          'empId', 'id', 'remarks', 'outstandingAmount', 'emiAmount', 'posAmount', 'caseStatus',
-                          'lastPaidDate', 'sanctionDate', 'lastPaidAmount', 'Last Paid Date', 'Sanction Date', 'Last Paid Amount',
-                          'last payment date', 'last payment amount', 'loan created at', 'totalCollectedAmount', 'total_collected_amount',
-                          // Database internal fields (normalized versions)
-                          'tenantid', 'assignedemployeeid', 'priority', 'uploadedby', 'teamid', 'productname',
-                          'createdat', 'updatedat', 'telecallerid', 'status', 'employeeid'
-                        ].map(normalizeKey);
-
-                        const normalizedKey = normalizeKey(key);
-                        // console.log(`Filtering key: ${key}, Normalized: ${normalizedKey}, Is Known: ${knownKeys.includes(normalizedKey)}`);
-
-                        return !knownKeys.includes(normalizedKey);
-                      });
-
-                    // Combine both custom fields and additional details
-                    const allAdditionalFields = [...customFieldsEntries, ...additionalDetails];
-
-                    if (allAdditionalFields.length === 0) {
-                      return (
-                        <div className="col-span-3 text-center py-8">
-                          <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                          <p className="text-sm text-gray-500">No additional details available</p>
-                        </div>
-                      );
-                    }
-
-                    return allAdditionalFields.map(([key, value], index) => {
+                  {!currentCaseData || allAdditionalFields.length === 0 ? (
+                    <div className="col-span-3 text-center py-8">
+                      <FileText className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                      <p className="text-sm text-gray-500">No additional details available</p>
+                    </div>
+                  ) : (
+                    allAdditionalFields.map(([key, value], index) => {
                       const displayName = key
                         .replace(/([A-Z])/g, ' $1')
                         .replace(/_/g, ' ')
@@ -681,7 +670,7 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
                         .trim();
 
                       // Check if this is a custom field (from custom_fields object)
-                      const isCustomField = index < customFieldsEntries.length;
+                      const isCustomField = index < customFieldsCount;
 
                       return (
                         <div key={key} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg relative">
@@ -705,8 +694,8 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
                           )}
                         </div>
                       );
-                    });
-                  })()}
+                    })
+                  )}
                 </div>
               </div>
             </div>
@@ -1048,7 +1037,13 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
       <PaymentReceivedModal
         isOpen={showPaymentModal}
         onClose={() => setShowPaymentModal(false)}
-        caseData={currentCaseData || caseData}
+        caseData={{
+          ...(currentCaseData || caseData),
+          outstanding_amount: String(getValue('totalOutstanding') || getValue('pos') || '0'),
+          total_collected_amount: typeof currentCaseData?.total_collected_amount === 'number'
+            ? currentCaseData.total_collected_amount
+            : parseFloat(String(getValue('totalCollected') || '0'))
+        }}
         onSubmit={handlePaymentSubmit}
       />
 

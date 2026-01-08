@@ -1,16 +1,18 @@
-import React from 'react';
-import { BarChart3, Users, FileText, BarChart, Settings, Bell } from 'lucide-react';
+import React, { useState } from 'react';
+import { BarChart3, Users, FileText, BarChart, Bell } from 'lucide-react';
 import Layout from '../Layout';
 import { useTenantName } from '../../hooks/useTenantName';
 import { Dashboard } from './Dashboard';
 import { TeamsContainer } from './TeamsContainer';
 import { CaseManagement } from './CaseManagement';
 import { ReportsComponent } from './Reports';
-import { Settings as SettingsComponent } from './Settings';
+import { ChatPanel } from '../Chat/ChatPanel';
 import { NotificationManager } from './NotificationManager';
 import { User } from '../../contexts/AuthContext';
 import { PTPAlertSection } from '../shared/reports/PTPAlertSection';
 import { CallbackAlertSection } from '../shared/reports/CallbackAlertSection';
+import { ChatSyncService } from '../../services/chatSyncService';
+import { useChannels } from '../../hooks/useChannels';
 import { CaseListSection } from '../shared/CaseListSection';
 import { LiveMonitoring } from '../CompanyAdmin/sections/LiveMonitoring';
 import { CaseDetailsModal } from '../TelecallerDashboard/CaseDetailsModal';
@@ -20,16 +22,32 @@ import { CustomerCase as ServiceCustomerCase } from '../../services/customerCase
 import ToastContainer from '../TelecallerDashboard/ToastContainer';
 import { useToast } from '../TelecallerDashboard/hooks';
 
+type SectionType = 'dashboard' | 'all-cases' | 'teams' | 'live-monitoring' | 'case-management' | 'reports' | 'ptp-alerts' | 'callback-alerts' | 'notifications' | 'settings';
+
 interface TeamInchargeDashboardProps {
   user: User;
   onLogout: () => void;
 }
 
 export const TeamInchargeDashboard: React.FC<TeamInchargeDashboardProps> = ({ user, onLogout }) => {
-  const [activeSection, setActiveSection] = React.useState('dashboard');
+  const [activeSection, setActiveSection] = useState<SectionType>('dashboard');
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [selectedCase, setSelectedCase] = React.useState<CustomerCase | null>(null);
   const toast = useToast();
   const { tenantName } = useTenantName(user?.tenantId);
+  const { unreadCounts } = useChannels(user?.id || '');
+  const totalUnreadMessages = Object.values(unreadCounts).reduce((a: number, b: number) => a + b, 0);
+
+  React.useEffect(() => {
+    if (user?.id && user?.tenantId) {
+      ChatSyncService.syncUserChannels(
+        user.tenantId,
+        user.id,
+        user.role || 'TeamIncharge',
+        user.teamId as string
+      );
+    }
+  }, [user?.id, user?.tenantId, user?.role, user?.teamId]);
 
   const menuItems = [
     { name: 'Dashboard', icon: BarChart3, active: activeSection === 'dashboard', onClick: () => setActiveSection('dashboard') },
@@ -41,7 +59,6 @@ export const TeamInchargeDashboard: React.FC<TeamInchargeDashboardProps> = ({ us
     { name: 'PTP Alert', icon: Bell, active: activeSection === 'ptp-alerts', onClick: () => setActiveSection('ptp-alerts') },
     { name: 'Callback Alert', icon: Bell, active: activeSection === 'callback-alerts', onClick: () => setActiveSection('callback-alerts') },
     { name: 'Notifications', icon: Bell, active: activeSection === 'notifications', onClick: () => setActiveSection('notifications') },
-    { name: 'Settings', icon: Settings, active: activeSection === 'settings', onClick: () => setActiveSection('settings') },
   ];
 
   const renderContent = () => {
@@ -56,14 +73,13 @@ export const TeamInchargeDashboard: React.FC<TeamInchargeDashboardProps> = ({ us
         return <ReportsComponent />;
       case 'live-monitoring':
         return <LiveMonitoring />;
-      case 'settings':
-        return <SettingsComponent />;
       case 'notifications':
         return <NotificationManager />;
       case 'ptp-alerts':
         return (
           <PTPAlertSection
             user={user}
+            teamId={user.teamId}
             onCaseClick={(caseItem) => setSelectedCase(mapServiceCaseToDashboardCase(caseItem as ServiceCustomerCase))}
           />
         );
@@ -71,6 +87,7 @@ export const TeamInchargeDashboard: React.FC<TeamInchargeDashboardProps> = ({ us
         return (
           <CallbackAlertSection
             user={user}
+            teamId={user.teamId}
             onCaseClick={(caseItem) => setSelectedCase(mapServiceCaseToDashboardCase(caseItem as ServiceCustomerCase))}
           />
         );
@@ -94,9 +111,14 @@ export const TeamInchargeDashboard: React.FC<TeamInchargeDashboardProps> = ({ us
       user={user}
       onLogout={onLogout}
       menuItems={menuItems}
-      title="Shakti - Team Incharge"
+      title="Shakthi - Team Incharge"
       roleColor="bg-green-500"
       tenantName={tenantName}
+      chatPanel={<ChatPanel onClose={() => setIsChatOpen(false)} />}
+      isChatOpen={isChatOpen}
+      onChatToggle={() => setIsChatOpen(!isChatOpen)}
+      unreadChatCount={totalUnreadMessages}
+      onNotificationClick={() => setActiveSection('notifications')}
     >
       {renderContent()}
 
@@ -117,6 +139,8 @@ export const TeamInchargeDashboard: React.FC<TeamInchargeDashboardProps> = ({ us
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toast.toasts} onRemoveToast={toast.removeToast} />
+
+      {/* Chat Panel - Rendered in Layout via split-panel */}
     </Layout>
   );
 };

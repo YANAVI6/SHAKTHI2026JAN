@@ -50,9 +50,11 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
         { label: 'Customer Name', value: getValue(['customerName', 'Customer Name', 'Name']), icon: User },
         { label: 'Loan ID', value: getValue(['loanId', 'loanNumber', 'Loan ID', 'Loan No']), icon: Briefcase },
         { label: 'Mobile Number', value: getValue(['mobileNo', 'mobileNumber', 'Mobile Number', 'Mobile']), icon: Phone },
-        { label: 'Address', value: getValue(['address', 'Address', 'Location']), icon: MapPin },
+        { label: 'Buckets', value: getValue(['buckets', 'Buckets', 'Bucket']), icon: Briefcase },
         { label: 'Employment Type', value: getValue(['employmentType', 'Employment Type', 'Occupation']), icon: Briefcase },
         { label: 'Loan Amount', value: getValue(['loanAmount', 'Loan Amount', 'Amount']), icon: DollarSign },
+        { label: 'Total Collected', value: `₹${(caseData.total_collected_amount || 0).toLocaleString('en-IN')}`, icon: CheckCircle },
+        { label: 'Address', value: getValue(['address', 'Address', 'Location']), icon: MapPin, className: 'md:col-span-2' },
     ];
 
     const loanFields = [
@@ -69,7 +71,7 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
     const knownKeys = [
         'customerName', 'loanId', 'loanNumber', 'mobileNo', 'mobileNumber', 'address', 'employmentType', 'loanAmount',
         'dpd', 'pos', 'posAmount', 'emi', 'emiAmount', 'totalOutstanding', 'outstandingAmount', 'paymentLink',
-        'lastPaymentDate', 'lastPaidDate', 'lastPaymentAmount', 'lastPaidAmount', 'loanCreatedAt', 'sanctionDate',
+        'total_collected_amount', 'buckets', 'Buckets', 'Bucket',
         'name', 'loan no', 'mobile', 'location', 'occupation', 'amount', 'days past due', 'principal outstanding',
         'installment', 'total due', 'date of last payment', 'last repayment date', 'collection date',
         'collection amount', 'receipt amount', 'repayment amount', 'disbursement date', 'booking date', 'agreement date',
@@ -124,7 +126,7 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
                         </div>
                         <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                             {customerFields.map((field, idx) => (
-                                <div key={idx} className="flex items-start space-x-3">
+                                <div key={idx} className={`flex items-start space-x-3 p-2 rounded-lg hover:bg-gray-50 transition-colors ${field.className || ''}`}>
                                     <div className="p-2 bg-gray-100 rounded-lg text-gray-500 shrink-0">
                                         <field.icon className="w-5 h-5" />
                                     </div>

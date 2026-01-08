@@ -14,9 +14,9 @@ import type {
 export interface CustomerCase {
   id?: string;
   tenant_id: string;
-  assigned_employee_id?: string;
-  team_id?: string;
-  telecaller_id?: string;
+  assigned_employee_id?: string | null;
+  team_id?: string | null;
+  telecaller_id?: string | null;
   loan_id?: string;
   customer_name?: string;
   mobile_no?: string;
@@ -212,7 +212,7 @@ export const customerCaseService = {
     }
   },
 
-  async getCasesByTelecaller(tenantId: string, empId: string): Promise<CustomerCase[]> {
+  async getCasesByTelecaller(tenantId: string, empId: string, teamId?: string): Promise<CustomerCase[]> {
     try {
       // First, find the employee by EMPID
       const { data: employee, error: employeeError } = await supabase
@@ -236,8 +236,8 @@ export const customerCaseService = {
         return [];
       }
 
-      // First try to get cases by telecaller_id (UUID)
-      const { data: casesByTelecallerId, error: telecallerError } = await supabase
+      // Build query for cases by telecaller_id
+      let query = supabase
         .from(CUSTOMER_CASE_TABLE)
         .select(`
           *,
@@ -248,14 +248,23 @@ export const customerCaseService = {
           )
         `)
         .eq('tenant_id', tenantId)
-        .eq('telecaller_id', employee.id)
-        .order('created_at', { ascending: false });
+        .eq('telecaller_id', employee.id);
+
+      // Add team filter - this is now REQUIRED for showing cases
+      if (!teamId) {
+        console.warn('⚠️ No team specified for telecaller cases');
+        return [];
+      }
+      query = query.eq('team_id', teamId);
+
+      const { data: casesByTelecallerId, error: telecallerError } = await query.order('created_at', { ascending: false });
 
       if (telecallerError) {
         console.error('❌ Error fetching cases by telecaller_id:', telecallerError);
+        return [];
       }
 
-      // If no cases found by telecaller_id, also try by assigned_employee_id as fallback
+      // If no cases found by telecaller_id, only fallback to assigned_employee_id IF it still matches team_id
       if (!casesByTelecallerId || casesByTelecallerId.length === 0) {
         const { data: casesByEmpId, error: empIdError } = await supabase
           .from(CUSTOMER_CASE_TABLE)
@@ -269,6 +278,7 @@ export const customerCaseService = {
           `)
           .eq('tenant_id', tenantId)
           .eq('assigned_employee_id', employee.id)
+          .eq('team_id', teamId)
           .order('created_at', { ascending: false });
 
         if (empIdError) {
@@ -309,26 +319,45 @@ export const customerCaseService = {
   },
 
   async getAllCases(tenantId: string): Promise<CustomerCase[]> {
-    const { data, error } = await supabase
-      .from(CUSTOMER_CASE_TABLE)
-      .select(`
-          *,
-          team:teams(name),
-          telecaller:employees!telecaller_id(name),
-          case_call_logs(call_status, ptp_datetime, created_at)
-        `)
-      .eq('tenant_id', tenantId)
-      .order('created_at', { ascending: false });
+    let allCases: CustomerCaseWithLogs[] = [];
+    let page = 0;
+    const pageSize = 1000;
+    let hasMore = true;
 
-    if (error) {
-      console.error('Error fetching all cases:', error);
-      throw new Error('Failed to fetch all cases');
+    while (hasMore) {
+      const { data, error } = await supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .select(`
+            *,
+            team:teams(name),
+            telecaller:employees!telecaller_id(name),
+            case_call_logs(call_status, ptp_datetime, created_at)
+          `)
+        .eq('tenant_id', tenantId)
+        .not('team_id', 'is', null) // Exclude orphaned cases from deleted teams
+        .order('created_at', { ascending: false })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      if (error) {
+        console.error('Error fetching all cases:', error);
+        throw new Error('Failed to fetch all cases');
+      }
+
+      if (data && data.length > 0) {
+        allCases = [...allCases, ...data] as CustomerCaseWithLogs[];
+        if (data.length < pageSize) {
+          hasMore = false;
+        }
+        page++;
+      } else {
+        hasMore = false;
+      }
     }
 
-    if (!data) return [];
+    if (allCases.length === 0) return [];
 
     // Process cases to extract latest_call_status from logs
-    return data.map((caseItem: CustomerCaseWithLogs) => {
+    return allCases.map((caseItem: CustomerCaseWithLogs) => {
       const logs = caseItem.case_call_logs || [];
       // Sort logs by created_at desc
       logs.sort((a: CallLog, b: CallLog) => {
@@ -462,6 +491,37 @@ export const customerCaseService = {
       throw new Error('Failed to add call log');
     }
 
+    // Sync latest call status and metadata to customer_cases table using case_data jsonb
+    // This avoids schema errors if dedicated columns are missing
+    const { data: currentCase } = await supabase
+      .from(CUSTOMER_CASE_TABLE)
+      .select('case_data')
+      .eq('id', callLog.case_id)
+      .single();
+
+    const newCaseData = {
+      ...(currentCase?.case_data || {}),
+      latest_call_status: callLog.call_status,
+      latest_call_date: new Date().toISOString(),
+      ...(callLog.ptp_datetime && { latest_ptp_date: callLog.ptp_datetime }),
+      ...(callLog.call_notes && { latest_call_notes: callLog.call_notes })
+    };
+
+    const updateData: Partial<CustomerCase> = {
+      case_data: newCaseData,
+      updated_at: new Date().toISOString(),
+      case_status: 'in_progress'
+    };
+
+    const { error: syncError } = await supabase
+      .from(CUSTOMER_CASE_TABLE)
+      .update(updateData)
+      .eq('id', callLog.case_id);
+
+    if (syncError) {
+      console.warn('⚠️ Non-critical: Failed to sync latest status to case:', syncError);
+    }
+
     return data;
   },
 
@@ -554,7 +614,7 @@ export const customerCaseService = {
       // First get all cases for the team with pagination
       let allCases: (CustomerCase & { case_call_logs: CallLog[] })[] = [];
       let page = 0;
-      const pageSize = 1000;
+      const pageSize = 500;
       let hasMore = true;
 
       while (hasMore) {
@@ -633,10 +693,8 @@ export const customerCaseService = {
         if (caseItem.case_call_logs && Array.isArray(caseItem.case_call_logs)) {
           // Find logs with PTP date
           const ptpLogs = caseItem.case_call_logs
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .filter((log: any) => log.ptp_datetime)
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+            .filter((log: CallLog) => log.ptp_datetime)
+            .sort((a: CallLog, b: CallLog) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
 
           if (ptpLogs.length > 0) {
             latestPtpDate = ptpLogs[0].ptp_datetime;
@@ -661,10 +719,9 @@ export const customerCaseService = {
   async getDeletedTeamCases(tenantId: string, teamId: string): Promise<TeamInchargeCase[]> {
     try {
       // Fetch only deleted cases for the team
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      let allCases: any[] = [];
+      let allCases: (CustomerCase & { case_call_logs?: CallLog[] })[] = [];
       let page = 0;
-      const pageSize = 1000;
+      const pageSize = 500;
       let hasMore = true;
 
       while (hasMore) {
@@ -762,10 +819,9 @@ export const customerCaseService = {
   },
 
   async getUnassignedTeamCases(tenantId: string, teamId: string): Promise<TeamInchargeCase[]> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let allCases: any[] = [];
+    let allCases: TeamInchargeCase[] = [];
     let page = 0;
-    const pageSize = 1000;
+    const pageSize = 500;
     let hasMore = true;
 
     while (hasMore) {
@@ -797,9 +853,544 @@ export const customerCaseService = {
     return allCases;
   },
 
+  async getTeamInchargeStats(tenantId: string, teamIds: string[]): Promise<{
+    totalCases: number;
+    unassignedCases: number;
+    assignedCases: number;
+    inProgressCases: number;
+    closedCases: number;
+  }> {
+    if (teamIds.length === 0) {
+      return {
+        totalCases: 0,
+        unassignedCases: 0,
+        assignedCases: 0,
+        inProgressCases: 0,
+        closedCases: 0
+      };
+    }
+
+    try {
+      // We can use the count option with head:true to get counts without data
+      // But we need multiple counts. 
+      // Efficient way: Get all cases with just the minimal columns needed for counting (status, telecaller_id, team_id)
+      // Or use .in() filter
+
+      // Let's fetch minimal data for all teams and aggregate in memory. 
+      // Ideally we would use RPC, but this is much better than fetching full objects with joins.
+
+      let allStats: { case_status: string; telecaller_id: string | null }[] = [];
+      let page = 0;
+      const pageSize = 500;
+      let hasMore = true;
+
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from(CUSTOMER_CASE_TABLE)
+          .select('case_status, telecaller_id')
+          .eq('tenant_id', tenantId)
+          .in('team_id', teamIds)
+          .neq('case_status', 'deleted')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (error) throw error;
+
+        if (data) {
+          allStats = [...allStats, ...data];
+          if (data.length < pageSize) hasMore = false;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      }
+
+      const stats = {
+        totalCases: allStats.length,
+        unassignedCases: allStats.filter(c => !c.telecaller_id).length,
+        assignedCases: allStats.filter(c => c.telecaller_id && c.case_status !== 'closed' && c.case_status !== 'resolved').length,
+        inProgressCases: allStats.filter(c => c.case_status === 'in_progress').length,
+        closedCases: allStats.filter(c => c.case_status === 'closed' || c.case_status === 'resolved').length
+      };
+
+      return stats;
+    } catch (error) {
+      console.error('Error fetching team stats:', error);
+      return {
+        totalCases: 0,
+        unassignedCases: 0,
+        assignedCases: 0,
+        inProgressCases: 0,
+        closedCases: 0
+      };
+    }
+  },
+
+  async getExplorerCases(
+    tenantId: string,
+    teamId: string,
+    filters: {
+      telecallerId?: string;
+      status?: string;
+      search?: string;
+    },
+    page: number = 0,
+    pageSize: number = 50
+  ): Promise<{ cases: TeamInchargeCase[]; count: number }> {
+    try {
+      let query = supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .select(`
+          *,
+          case_call_logs${filters.status && !['pending', 'in_progress', 'resolved', 'closed', 'all'].includes(filters.status.toLowerCase()) ? '!inner' : ''} (
+            call_status,
+            ptp_datetime,
+            created_at
+          )
+        `, { count: 'exact' })
+        .eq('tenant_id', tenantId)
+        .eq('team_id', teamId)
+        .neq('case_status', 'deleted');
+
+      // Apply Filters
+      if (filters.telecallerId) {
+        query = query.eq('telecaller_id', filters.telecallerId);
+      }
+
+      if (filters.status && filters.status !== 'all') {
+        const s = filters.status;
+        const sLower = s.toLowerCase();
+        // Check if it's a workflow status or call status
+        if (['pending', 'in_progress', 'resolved', 'closed'].includes(sLower)) {
+          query = query.eq('case_status', sLower);
+        } else {
+          // Use the !inner join to filter parents that have at least one log with this status
+          query = query.eq('case_call_logs.call_status', s);
+        }
+      }
+
+      if (filters.search) {
+        const search = filters.search;
+        // Search loan_id, customer_name, mobile_no
+        query = query.or(`loan_id.ilike.%${search}%,customer_name.ilike.%${search}%,mobile_no.ilike.%${search}%`);
+      }
+
+      // Pagination
+      query = query
+        .order('created_at', { ascending: false })
+        .range(page * pageSize, (page + 1) * pageSize - 1);
+
+      const { data, count, error } = await query;
+
+      if (error) throw error;
+
+      if (!data) return { cases: [], count: 0 };
+
+      // Process cases - reused logic
+      // Get unique telecaller IDs
+      const telecallerIds = [...new Set(data.filter(c => c.telecaller_id).map(c => c.telecaller_id))];
+      let telecallerMap = new Map();
+      if (telecallerIds.length > 0) {
+        const { data: telecallers } = await supabase
+          .from('employees')
+          .select('id, name')
+          .in('id', telecallerIds);
+        if (telecallers) {
+          telecallerMap = new Map(telecallers.map(t => [t.id, t]));
+        }
+      }
+
+      const processedCases = data.map(caseItem => {
+        // Sort logs
+        const logs = (caseItem.case_call_logs as CallLog[]) || [];
+        logs.sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+
+        const latestCallStatus = logs.length > 0 ? logs[0].call_status : undefined;
+        const latestPtpDate = logs.find(l => l.ptp_datetime)?.ptp_datetime;
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { case_call_logs, ...rest } = caseItem;
+
+        return {
+          ...rest,
+          latest_call_status: latestCallStatus,
+          latest_ptp_date: latestPtpDate,
+          telecaller: caseItem.telecaller_id ? telecallerMap.get(caseItem.telecaller_id) : null
+        };
+      });
+
+      return { cases: processedCases as TeamInchargeCase[], count: count || 0 };
+    } catch (error) {
+      console.error('Error in getExplorerCases:', error);
+      throw error;
+    }
+  },
+
+  async getLiveMonitoringStats(tenantId: string, teamIds: string[]): Promise<unknown[]> {
+    try {
+      // 1. Get Teams with Telecallers via Junction Table
+      const { data: teams, error } = await supabase
+        .from('teams')
+        .select(`
+                id, 
+                name, 
+                team_telecallers (
+                    employees:telecaller_id (id, name, emp_id, role, status)
+                )
+            `)
+        .in('id', teamIds)
+        .eq('status', 'active'); // Teams must be active
+
+      if (error) {
+        console.error('Error fetching teams for live monitoring:', error);
+        return [];
+      }
+
+      if (!teams) return [];
+
+      // Flatten the structure: Team -> Junction -> Employee
+      const teamsWithEmployees = teams.map(t => {
+        const junctions = (t.team_telecallers as unknown as { employees: { id: string, name: string, emp_id: string, role: string, status: string } }[]) || [];
+        // Filter out any null employees or non-active/non-telecaller ones if needed
+        // The TeamService generally ensures valid assignments, but safe to filter.
+        const employees = junctions
+          .map(j => j.employees)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((e: any) => e && e.status === 'active' && e.role === 'Telecaller');
+
+        return {
+          ...t,
+          telecallers: employees
+        };
+      });
+
+      const allTelecallerIds = teamsWithEmployees.flatMap(t => t.telecallers.map((e: { id: string }) => e.id));
+
+      if (allTelecallerIds.length === 0) {
+        return teamsWithEmployees.map(t => ({
+          teamId: t.id,
+          teamName: t.name,
+          totalCases: 0,
+          liveCases: 0,
+          telecallers: []
+        }));
+      }
+
+      // 2. Get User Activity
+      const { data: activityData } = await supabase
+        .from('user_activity')
+        .select('employee_id, status, last_active_time')
+        .in('employee_id', allTelecallerIds)
+        .eq('tenant_id', tenantId)
+        //.order('last_active_time', { ascending: false }); // Order in JS to avoid grouping issues if any
+        .gt('last_active_time', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()); // Optimization: only last 24h
+
+      const activityMap = new Map();
+      // Since we ordered by time desc, first entry per user is latest
+      // We need to sort in JS if we fetched multiple
+      activityData?.sort((a, b) => new Date(b.last_active_time).getTime() - new Date(a.last_active_time).getTime());
+      activityData?.forEach(a => {
+        if (!activityMap.has(a.employee_id)) activityMap.set(a.employee_id, a);
+      });
+
+      // 3. Get Total Case Counts (Paginated to bypass limit)
+      // We only need count per telecaller.
+      let allAssignedCases: { telecaller_id: string | null }[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      let hasMore = true;
+
+      // Safety break
+      let loopCount = 0;
+      while (hasMore && loopCount < 50) { // Limit to 50 pages (50k cases) for safety
+        const { data: batch } = await supabase
+          .from(CUSTOMER_CASE_TABLE)
+          .select('telecaller_id')
+          .eq('tenant_id', tenantId)
+          .in('telecaller_id', allTelecallerIds)
+          .neq('case_status', 'deleted')
+          .range(page * pageSize, (page + 1) * pageSize - 1);
+
+        if (batch && batch.length > 0) {
+          allAssignedCases = [...allAssignedCases, ...batch];
+          if (batch.length < pageSize) hasMore = false;
+          page++;
+        } else {
+          hasMore = false;
+        }
+        loopCount++;
+      }
+
+      const caseCounts = new Map<string, number>();
+      allAssignedCases.forEach(c => {
+        if (c.telecaller_id) {
+          caseCounts.set(c.telecaller_id, (caseCounts.get(c.telecaller_id) || 0) + 1);
+        }
+      });
+
+      // 4. Get Call Logs (Today)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const { data: callLogs } = await supabase
+        .from('case_call_logs')
+        .select('case_id, employee_id, call_status, created_at')
+        .in('employee_id', allTelecallerIds)
+        .gte('created_at', today.toISOString())
+        .order('created_at', { ascending: false });
+
+      const logs = callLogs || [];
+
+      // 5. Get Unique Cases for Details
+      const activeCaseIds = [...new Set(logs.map(l => l.case_id))];
+      let caseDetailsMap = new Map();
+
+      if (activeCaseIds.length > 0) {
+        const { data: activeCases } = await supabase
+          .from(CUSTOMER_CASE_TABLE)
+          .select('*')
+          .in('id', activeCaseIds);
+
+        if (activeCases) {
+          caseDetailsMap = new Map(activeCases.map(c => [c.id, c]));
+        }
+      }
+
+      return teamsWithEmployees.map(team => {
+        const teamTelecallers = (team.telecallers as { id: string, name: string }[]) || [];
+
+        const telecallerStats = teamTelecallers.map(t => {
+          const totalVariables = caseCounts.get(t.id) || 0;
+          const userLogs = logs.filter(l => l.employee_id === t.id);
+          const uniqueWorkedCaseIds = [...new Set(userLogs.map(l => l.case_id))];
+
+          // Build Case Details
+          const casesDetails = uniqueWorkedCaseIds.map(caseId => {
+            const caseData = caseDetailsMap.get(caseId);
+            const log = userLogs.find(l => l.case_id === caseId); // First one is latest due to sort
+            if (!caseData || !log) return null;
+
+            // Helper to get value from case_data
+            const getValueFromCaseData = (keys: string[]) => {
+              const data = caseData.case_data || {};
+              for (const key of keys) {
+                if (data[key] !== undefined && data[key] !== null) {
+                  return String(data[key]).replace(/,/g, '');
+                }
+              }
+              return undefined;
+            };
+
+            const rawPos = caseData.outstanding_amount || getValueFromCaseData(['pos', 'pos_amount', 'outstanding_amount', 'total_outstanding', 'Total Outstanding', 'POS']);
+            const rawEmi = caseData.emi_amount || getValueFromCaseData(['emi', 'emi_amount', 'EMI', 'EMI Amount']);
+
+            return {
+              id: caseId,
+              loanId: caseData.loan_id || 'N/A',
+              customerName: caseData.customer_name || 'N/A',
+              mobileNo: caseData.mobile_no || 'N/A',
+              callStatus: log.call_status || 'N/A',
+              lastCallTime: new Date(log.created_at).toLocaleTimeString(),
+              callCount: userLogs.filter(l => l.case_id === caseId).length,
+              caseStatus: caseData.case_status,
+              dpd: caseData.dpd,
+              pos: rawPos ? parseFloat(String(rawPos).replace(/,/g, '')) : undefined,
+              emi: rawEmi ? parseFloat(String(rawEmi).replace(/,/g, '')) : undefined,
+              priority: caseData.priority
+            };
+          }).filter(Boolean);
+
+          const activity = activityMap.get(t.id);
+          const lastActive = activity?.last_active_time ? new Date(activity.last_active_time) : null;
+          const minutesAgo = lastActive ? Math.floor((Date.now() - lastActive.getTime()) / 60000) : 999;
+
+          return {
+            id: t.id,
+            name: t.name,
+            teamName: team.name,
+            totalCases: totalVariables,
+            liveCases: casesDetails.length,
+            completedToday: userLogs.filter(l => l.call_status === 'PTP' || l.call_status === 'PAID').length,
+            lastActivity: minutesAgo < 60 ? `${minutesAgo}m ago` : minutesAgo < 1440 ? `${Math.floor(minutesAgo / 60)}h ago` : 'Offline',
+            status: activity?.status || 'Offline',
+            casesDetails: casesDetails
+          };
+        });
+
+        return {
+          teamId: team.id,
+          teamName: team.name,
+          totalCases: telecallerStats.reduce((s, t) => s + t.totalCases, 0),
+          liveCases: telecallerStats.reduce((s, t) => s + t.liveCases, 0),
+          telecallers: telecallerStats
+        };
+      });
+
+    } catch (error) {
+      console.error('Error fetching live monitoring stats:', error);
+      return [];
+    }
+  },
+
+  async getTelecallerDashboardStats(tenantId: string, empId: string, teamId: string) {
+    try {
+      // 1. Get Employee ID (Internal ID)
+      const { data: employee } = await supabase
+        .from(EMPLOYEE_TABLE)
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('emp_id', empId)
+        .single();
+
+      if (!employee) return { assignedCases: 0, callsToday: 0, recoveryToday: 0 };
+
+      // 2. Get Total Assigned Cases (Count Only)
+      // Using team_id filter + telecaller_id to match specific assignment within team
+      const { count: assignedCount } = await supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .select('*', { count: 'exact', head: true })
+        .eq('tenant_id', tenantId)
+        .eq('team_id', teamId)
+        .eq('telecaller_id', employee.id)
+        .neq('case_status', 'deleted');
+
+      // 3. Get Today's Activity (Calls & Recovery)
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+
+      const { data: logs } = await supabase
+        .from('case_call_logs')
+        .select('amount_collected')
+        .eq('employee_id', employee.id)
+        .gte('created_at', today.toISOString());
+
+      const callsToday = logs?.length || 0;
+      const recoveryToday = logs?.reduce((sum, log) => sum + (parseFloat(log.amount_collected || '0')), 0) || 0;
+
+      return {
+        assignedCases: assignedCount || 0,
+        callsToday,
+        recoveryToday
+      };
+
+    } catch (error) {
+      console.error('Error in getTelecallerDashboardStats:', error);
+      return { assignedCases: 0, callsToday: 0, recoveryToday: 0 };
+    }
+  },
+
+  async getTelecallerCasesPaginated(
+    tenantId: string,
+    empId: string,
+    teamId: string,
+    page: number = 1,
+    pageSize: number = 10,
+    filters: {
+      search?: string;
+      dpd?: string;
+      callStatus?: string;
+      sortBy?: string;
+      sortOrder?: 'asc' | 'desc';
+      pendingFollowups?: boolean;
+      allowedIds?: string[];
+    } = {}
+  ): Promise<{ cases: (CustomerCase & { latest_call_status?: string; latest_call_date?: string; latest_ptp_date?: string })[], total: number }> {
+    try {
+      const { data: employee } = await supabase
+        .from(EMPLOYEE_TABLE)
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('emp_id', empId)
+        .single();
+
+      if (!employee) return { cases: [], total: 0 };
+
+      let query = supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .select(`
+                *,
+                case_call_logs(call_status, created_at, ptp_datetime)
+             `, { count: 'exact' })
+        .eq('tenant_id', tenantId)
+        .eq('team_id', teamId)
+        .eq('telecaller_id', employee.id)
+        .neq('case_status', 'deleted');
+
+      // Apply Allowed IDs Filter (e.g. for pending followups)
+      if (filters.allowedIds && filters.allowedIds.length > 0) {
+        query = query.in('id', filters.allowedIds);
+      } else if (filters.allowedIds && filters.allowedIds.length === 0) {
+        // Explicitly provided empty list means matches nothing
+        return { cases: [], total: 0 };
+      }
+
+      // Apply Search
+      if (filters.search) {
+        const term = filters.search.trim();
+        query = query.or(`customer_name.ilike.%${term}%,loan_id.ilike.%${term}%,mobile_no.ilike.%${term}%`);
+      }
+
+      // Apply DPD Filter
+      if (filters.dpd && filters.dpd !== 'all') {
+        const range = filters.dpd.split('-');
+        if (range.length === 2) {
+          query = query.gte('dpd', parseInt(range[0])).lte('dpd', parseInt(range[1]));
+        } else if (filters.dpd === '2500+') {
+          query = query.gt('dpd', 2500);
+        }
+      }
+
+      // Apply Call Status Filter
+      if (filters.callStatus && filters.callStatus !== 'all') {
+        // Use jsonb operator for better compatibility since column may be missing
+        query = query.filter('case_data->>latest_call_status', 'eq', filters.callStatus);
+      }
+
+      // Sorting
+      const sortCol = filters.sortBy || 'dpd';
+      const sortOrder = filters.sortOrder === 'asc';
+
+      if (sortCol === 'outstandingAmount') query = query.order('outstanding_amount', { ascending: sortOrder });
+      else if (sortCol === 'emiAmount') query = query.order('emi_amount', { ascending: sortOrder });
+      else if (sortCol === 'customerName') query = query.order('customer_name', { ascending: sortOrder });
+      else if (sortCol === 'lastPaidDate') query = query.order('last_paid_date', { ascending: sortOrder });
+      else if (sortCol === 'latestCallStatus') query = query.order('case_data->>latest_call_status', { ascending: sortOrder });
+      else query = query.order('dpd', { ascending: sortOrder });
+
+      // Pagination
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+
+      const { data, count, error } = await query.range(from, to);
+
+      if (error) {
+        console.error('Error fetching paginated cases:', error);
+        return { cases: [], total: 0 };
+      }
+
+      const enriched = (data || []).map((c: CustomerCase & { case_call_logs?: CallLog[]; latest_call_status?: string; latest_call_date?: string; latest_ptp_date?: string }) => {
+        const logs = c.case_call_logs || [];
+        logs.sort((a: CallLog, b: CallLog) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+        const cData = c.case_data || {};
+
+        return {
+          ...c,
+          case_call_logs: logs,
+          // Only set from logs if not already present from DB (fallback)
+          latest_call_status: c.latest_call_status || (cData.latest_call_status as string) || logs[0]?.call_status,
+          latest_call_date: c.latest_call_date || (cData.latest_call_date as string) || logs[0]?.created_at,
+          latest_ptp_date: c.latest_ptp_date || (cData.latest_ptp_date as string) || logs[0]?.ptp_datetime
+        };
+      });
+
+      return { cases: enriched, total: count || 0 };
+
+    } catch (error) {
+      console.error('Error in getTelecallerCasesPaginated:', error);
+      return { cases: [], total: 0 };
+    }
+  },
+
   async getCasesByFilters(tenantId: string, teamId: string, filters: CaseFilters): Promise<TeamInchargeCase[]> {
-
-
     let query = supabase
       .from(CUSTOMER_CASE_TABLE)
       .select(`
@@ -847,7 +1438,7 @@ export const customerCaseService = {
     return allData || [];
   },
 
-  async createBulkCases(cases: Omit<CustomerCase, 'id' | 'created_at' | 'updated_at'>[]): Promise<CaseUploadResult> {
+  async createBulkCases(cases: Omit<CustomerCase, 'id' | 'created_at' | 'updated_at'>[], onProgress?: (progress: number) => void): Promise<CaseUploadResult> {
     let totalUploaded = 0;
     let autoAssigned = 0;
     let unassigned = 0;
@@ -904,10 +1495,12 @@ export const customerCaseService = {
         if (caseData.case_data?.EMPID && telecallerMap.has(String(caseData.case_data.EMPID))) {
           caseData.telecaller_id = telecallerMap.get(String(caseData.case_data.EMPID));
           caseData.assigned_employee_id = String(caseData.case_data.EMPID);
+          caseData.case_status = 'assigned';
           autoAssigned++;
         } else {
           caseData.telecaller_id = undefined;
           caseData.assigned_employee_id = 'UNASSIGNED'; // Default value for unassigned cases
+          caseData.case_status = 'pending';
           unassigned++;
         }
 
@@ -952,6 +1545,12 @@ export const customerCaseService = {
         } else {
           totalUploaded++;
         }
+
+        // Report progress
+        if (onProgress) {
+          const progress = Math.round(((i + 1) / cases.length) * 100);
+          onProgress(progress);
+        }
       } catch (error) {
         errors.push({
           row: i + 1,
@@ -970,8 +1569,7 @@ export const customerCaseService = {
   },
 
   async assignCase(caseId: string, assignment: CaseAssignment): Promise<void> {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const updateData: any = {
+    const updateData: Partial<CustomerCase> = {
       telecaller_id: assignment.telecallerId || null,
       updated_at: new Date().toISOString()
     };
@@ -991,12 +1589,13 @@ export const customerCaseService = {
       }
 
       updateData.assigned_employee_id = telecaller.emp_id || 'UNASSIGNED';
-      // Also update case_status to 'assigned' if it's currently 'new' or 'pending'
-      // But for now, let's just stick to fixing the assignment error
+      // IMPORTANT: Update case_status to 'assigned' when assigned to a telecaller
+      updateData.case_status = 'assigned';
     } else {
       // Unassigning - clear assigned_employee_id and telecaller_id
       updateData.assigned_employee_id = 'UNASSIGNED';
       updateData.telecaller_id = null;
+      updateData.case_status = 'pending'; // Move back to pending/new pool
     }
 
 
@@ -1031,13 +1630,13 @@ export const customerCaseService = {
     }
 
     const cases = data || [];
-    // Using case_status instead of status (status column removed)
+    // For telecaller view, make them mutually exclusive
     return {
       total: cases.length,
-      new: cases.filter(c => c.case_status === 'pending').length,
-      assigned: cases.filter(c => c.telecaller_id != null).length,
+      new: cases.filter(c => c.case_status === 'pending' || c.case_status === 'new').length,
+      assigned: cases.filter(c => c.case_status === 'assigned').length,
       inProgress: cases.filter(c => c.case_status === 'in_progress').length,
-      closed: cases.filter(c => c.case_status === 'closed').length
+      closed: cases.filter(c => c.case_status === 'closed' || c.case_status === 'resolved').length
     };
   },
 
@@ -1090,7 +1689,7 @@ export const customerCaseService = {
     const remainingAmount = outstandingAmount - newTotalCollected;
     const shouldCloseCase = remainingAmount <= 0;
 
-
+    // 1. Log the payment as a call log
     const { error: logError } = await supabase
       .from(CASE_CALL_LOG_TABLE)
       .insert({
@@ -1107,16 +1706,22 @@ export const customerCaseService = {
       throw new Error('Failed to record payment log: ' + logError.message);
     }
 
-
+    // 2. Prepare case data update (jsonb)
+    const newCaseData = {
+      ...(currentCase?.case_data || {}),
+      latest_call_status: 'PAYMENT_RECEIVED',
+      latest_call_date: new Date().toISOString(),
+      latest_call_notes: notes
+    };
 
     const updateData: Partial<CustomerCase> = {
       total_collected_amount: newTotalCollected,
+      case_data: newCaseData,
       updated_at: new Date().toISOString()
     };
 
     if (shouldCloseCase) {
       updateData.case_status = 'closed';
-
     }
 
 
@@ -1234,7 +1839,7 @@ export const customerCaseService = {
       return [];
     }
   },
-  async getDashboardMetrics(tenantId: string, empId: string): Promise<{
+  async getDashboardMetrics(tenantId: string, empId: string, teamId?: string): Promise<{
     collections: {
       collected: number;
       target: number;
@@ -1272,14 +1877,8 @@ export const customerCaseService = {
         };
       }
 
-      const { data: cases, error: casesError } = await supabase
-        .from(CUSTOMER_CASE_TABLE)
-        .select('*')
-        .eq('tenant_id', tenantId)
-        .eq('telecaller_id', employee.id);
-
-      if (casesError) {
-        console.error('Error fetching cases for metrics:', casesError);
+      if (!teamId) {
+        console.warn('⚠️ No team specified for dashboard metrics');
         return {
           collections: { collected: 0, target: 100000, progress: 0 },
           followUps: { todaysFollowUps: 0, upcomingFollowUps: 0, todaysPTP: 0 },
@@ -1287,85 +1886,89 @@ export const customerCaseService = {
         };
       }
 
-      const totalCollected = cases?.reduce((sum: number, c: CustomerCase) => {
-        return sum + (c.total_collected_amount || 0);
-      }, 0) || 0;
+      // 1. Get accurate counts using parallel count-only queries
+      const [
+        { count: totalCount },
+        { count: newCount },
+        { count: assignedCount },
+        { count: inProgressCount },
+        { count: closedCount }
+      ] = await Promise.all([
+        supabase.from(CUSTOMER_CASE_TABLE).select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('telecaller_id', employee.id).eq('team_id', teamId).neq('case_status', 'deleted'),
+        supabase.from(CUSTOMER_CASE_TABLE).select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('telecaller_id', employee.id).eq('team_id', teamId).eq('case_status', 'new'),
+        supabase.from(CUSTOMER_CASE_TABLE).select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('telecaller_id', employee.id).eq('team_id', teamId).in('case_status', ['assigned', 'pending']),
+        supabase.from(CUSTOMER_CASE_TABLE).select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('telecaller_id', employee.id).eq('team_id', teamId).eq('case_status', 'in_progress'),
+        supabase.from(CUSTOMER_CASE_TABLE).select('*', { count: 'exact', head: true }).eq('tenant_id', tenantId).eq('telecaller_id', employee.id).eq('team_id', teamId).in('case_status', ['closed', 'resolved', 'fully_paid'])
+      ]);
 
-      const monthlyTarget = 100000;
-      const progress = monthlyTarget > 0 ? Math.round((totalCollected / monthlyTarget) * 100) : 0;
+      // 2. Sum total collections for this telecaller (Paginating if necessary)
+      let totalCollected = 0;
+      let hasMore = true;
+      let page = 0;
+      while (hasMore) {
+        const { data, error } = await supabase
+          .from(CUSTOMER_CASE_TABLE)
+          .select('total_collected_amount')
+          .eq('tenant_id', tenantId)
+          .eq('telecaller_id', employee.id)
+          .eq('team_id', teamId)
+          .range(page * 1000, (page + 1) * 1000 - 1);
 
-      const caseIds = cases?.map(c => c.id) || [];
-      let todaysPTP = 0;
-      let todaysFollowUps = 0;
-      let upcomingFollowUps = 0;
-
-      if (caseIds.length > 0) {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const todayStr = today.toISOString().split('T')[0];
-
-        const { data: allLogs, error: logsError } = await supabase
-          .from(CASE_CALL_LOG_TABLE)
-          .select('*')
-          .in('case_id', caseIds);
-
-        if (!logsError && allLogs) {
-          const todayStart = new Date(todayStr).getTime();
-          const todayEnd = todayStart + 86400000;
-
-          todaysPTP = allLogs.filter((log: CallLog) => {
-            const logDate = log.created_at ? new Date(log.created_at).getTime() : 0;
-            return logDate >= todayStart && logDate < todayEnd &&
-              (log.call_status === 'PTP' || log.call_status === 'FUTURE_PTP');
-          }).length;
-
-          const ptpMap = new Map();
-          allLogs.forEach(log => {
-            if (log.ptp_datetime) {
-              const existingLog = ptpMap.get(log.case_id);
-              if (!existingLog || new Date(log.created_at) > new Date(existingLog.created_at)) {
-                ptpMap.set(log.case_id, log);
-              }
-            }
-          });
-
-          ptpMap.forEach(log => {
-            if (log.ptp_datetime) {
-              const ptpDate = new Date(log.ptp_datetime);
-              ptpDate.setHours(0, 0, 0, 0);
-              const ptpTime = ptpDate.getTime();
-
-              if (ptpTime === todayStart) {
-                todaysFollowUps++;
-              } else if (ptpTime > todayStart) {
-                upcomingFollowUps++;
-              }
-            }
-          });
+        if (error || !data || data.length === 0) {
+          hasMore = false;
+        } else {
+          totalCollected += data.reduce((sum, c) => sum + (parseFloat(String(c.total_collected_amount || 0))), 0);
+          if (data.length < 1000) hasMore = false;
+          page++;
         }
       }
 
-      // Using case_status instead of status (status column removed)
-      const statusCounts = {
-        total: cases?.length || 0,
-        new: cases?.filter(c => c.case_status === 'pending').length || 0,
-        assigned: cases?.filter(c => c.telecaller_id != null).length || 0,
-        inProgress: cases?.filter(c => c.case_status === 'in_progress').length || 0,
-        closed: cases?.filter(c => c.case_status === 'closed').length || 0
-      };
+      // 3. For follow-ups and PTPs, we still need logs but we'll fetch only what's needed for counts
+      // To truly fix this for >1000 logs, we'd need count queries for specific date ranges
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const todayStr = today.toISOString();
+
+      const { count: todaysPTP } = await supabase
+        .from(CASE_CALL_LOG_TABLE)
+        .select('*', { count: 'exact', head: true })
+        .eq('employee_id', employee.id)
+        .gte('created_at', todayStr)
+        .in('call_status', ['PTP', 'FUTURE_PTP']);
+
+      // For actual follow-up dates, we still need to fetch some logs to see the dates
+      // For now, let's just get the count of cases that HAVE a ptp_datetime >= today
+      const { count: todaysFollowUps } = await supabase
+        .from(CASE_CALL_LOG_TABLE)
+        .select('*', { count: 'exact', head: true })
+        .eq('employee_id', employee.id)
+        .gte('ptp_datetime', todayStr)
+        .lt('ptp_datetime', new Date(today.getTime() + 86400000).toISOString());
+
+      const { count: upcomingFollowUps } = await supabase
+        .from(CASE_CALL_LOG_TABLE)
+        .select('*', { count: 'exact', head: true })
+        .eq('employee_id', employee.id)
+        .gt('ptp_datetime', new Date(today.getTime() + 86400000).toISOString());
 
       return {
         collections: {
           collected: totalCollected,
-          target: monthlyTarget,
-          progress: progress > 100 ? 100 : progress
+          target: 100000,
+          progress: Math.min(Math.round((totalCollected / 100000) * 100), 100)
         },
         followUps: {
-          todaysFollowUps,
-          upcomingFollowUps,
-          todaysPTP
+          todaysFollowUps: todaysFollowUps || 0,
+          upcomingFollowUps: upcomingFollowUps || 0,
+          todaysPTP: todaysPTP || 0
         },
-        caseStatus: statusCounts
+        caseStatus: {
+          total: totalCount || 0,
+          new: newCount || 0,
+          assigned: assignedCount || 0,
+          inProgress: inProgressCount || 0,
+          closed: closedCount || 0
+        }
       };
     } catch (error) {
       console.error('Error in getDashboardMetrics:', error);
@@ -1377,11 +1980,11 @@ export const customerCaseService = {
     }
   },
 
-  async getCasesWithPendingFollowups(tenantId: string, empId: string): Promise<string[]> {
+  async getCasesWithPendingFollowups(tenantId: string, empId: string, teamId?: string): Promise<string[]> {
     try {
       const { data: employee, error: employeeError } = await supabase
         .from(EMPLOYEE_TABLE)
-        .select('id, emp_id, name')
+        .select('id')
         .eq('tenant_id', tenantId)
         .eq('emp_id', empId)
         .eq('role', 'Telecaller')
@@ -1393,55 +1996,60 @@ export const customerCaseService = {
         return [];
       }
 
-      const { data: cases, error: casesError } = await supabase
-        .from(CUSTOMER_CASE_TABLE)
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .eq('telecaller_id', employee.id);
-
-      if (casesError || !cases || cases.length === 0) {
-        return [];
-      }
-
-      const caseIds = cases.map(c => c.id);
-
-      const { data: allLogs, error: logsError } = await supabase
-        .from(CASE_CALL_LOG_TABLE)
-        .select('case_id, ptp_datetime, created_at')
-        .in('case_id', caseIds);
-
-      if (logsError || !allLogs) {
-        return [];
-      }
-
       const today = new Date();
       today.setHours(0, 0, 0, 0);
-      const todayTime = today.getTime();
+      const todayStr = today.toISOString();
 
-      const ptpMap = new Map();
-      allLogs.forEach(log => {
-        if (log.ptp_datetime) {
-          const existingLog = ptpMap.get(log.case_id);
-          if (!existingLog || new Date(log.created_at) > new Date(existingLog.created_at)) {
-            ptpMap.set(log.case_id, log);
-          }
+      // Fetch all case_ids that have a pending PTP
+      // We paginate to ensure we get ALL logs if there are >1000
+      const pendingCaseIds = new Set<string>();
+      let hasMore = true;
+      let page = 0;
+      while (hasMore) {
+        const query = supabase
+          .from(CASE_CALL_LOG_TABLE)
+          .select('case_id')
+          .eq('tenant_id', tenantId)
+          .eq('employee_id', employee.id)
+          .gte('ptp_datetime', todayStr)
+          .range(page * 1000, (page + 1) * 1000 - 1);
+
+        const { data, error } = await query;
+
+        if (error || !data || data.length === 0) {
+          hasMore = false;
+        } else {
+          data.forEach(log => pendingCaseIds.add(log.case_id));
+          if (data.length < 1000) hasMore = false;
+          page++;
         }
-      });
+      }
 
-      const casesWithPendingPTP: string[] = [];
-      ptpMap.forEach((log, caseId) => {
-        if (log.ptp_datetime) {
-          const ptpDate = new Date(log.ptp_datetime);
-          ptpDate.setHours(0, 0, 0, 0);
-          const ptpTime = ptpDate.getTime();
+      // Optional: Filter those case IDs to ensure they belong to the current team and aren't deleted
+      // This is important if a telecaller works on multiple teams or cases can be deleted
+      const finalCaseIds: string[] = [];
+      const idArray = Array.from(pendingCaseIds);
 
-          if (ptpTime >= todayTime) {
-            casesWithPendingPTP.push(caseId);
-          }
+      // Since we might have many IDs, we check them in batches of 500
+      for (let i = 0; i < idArray.length; i += 500) {
+        const batch = idArray.slice(i, i + 500);
+        let checkQuery = supabase
+          .from(CUSTOMER_CASE_TABLE)
+          .select('id')
+          .in('id', batch)
+          .neq('case_status', 'deleted');
+
+        if (teamId) {
+          checkQuery = checkQuery.eq('team_id', teamId);
         }
-      });
 
-      return casesWithPendingPTP;
+        const { data: validCases } = await checkQuery;
+        if (validCases) {
+          validCases.forEach(c => finalCaseIds.push(c.id));
+        }
+      }
+
+      return finalCaseIds;
     } catch (error) {
       console.error('Error in getCasesWithPendingFollowups:', error);
       return [];
@@ -1489,9 +2097,21 @@ export const customerCaseService = {
     }
   },
 
-  async getTodayPTPCases(tenantId: string, employeeId?: string): Promise<TeamInchargeCase[]> {
+  async getTodayPTPCases(tenantId: string, employeeId?: string, teamId?: string): Promise<TeamInchargeCase[]> {
     try {
-      console.log('🔍 getTodayPTPCases called', { tenantId, employeeId });
+      console.log('🔍 getTodayPTPCases called', { tenantId, employeeId, teamId });
+
+      // Strict filtering: require either employeeId OR teamId
+      if (employeeId && !teamId) {
+        console.warn('⚠️ Telecaller PTP request without teamId - returning empty');
+        return [];
+      }
+
+      // If no employeeId and no teamId, return empty (prevents showing all PTPs)
+      if (!employeeId && !teamId) {
+        console.warn('⚠️ PTP request without employeeId or teamId - returning empty');
+        return [];
+      }
 
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
@@ -1519,23 +2139,17 @@ export const customerCaseService = {
         return [];
       }
 
-      // Map caseId to its PTP datetime. If multiple, we generally want the latest one or all?
-      // For alerts, if there are multiple PTPs, meaningful one is likely the last one set 
-      // or we handle the one that is "next" due? 
-      // Let's take the latest PTP time for today for simplicity.
+      // Map caseId to its PTP datetime
       const ptpMap = new Map<string, string>();
       logs.forEach(log => {
-        // Since we filtered logs for today, this timestamp is today
         if (log.ptp_datetime) {
           ptpMap.set(log.case_id, log.ptp_datetime);
         }
       });
 
       const caseIds = Array.from(ptpMap.keys());
-
       if (caseIds.length === 0) return [];
 
-      // Chunk the case IDs to avoid 400 Bad Request (URL too long)
       const chunkSize = 20;
       const chunks = [];
       for (let i = 0; i < caseIds.length; i += chunkSize) {
@@ -1559,9 +2173,12 @@ export const customerCaseService = {
           .in('id', chunk)
           .order('created_at', { ascending: false });
 
-        // 2. Filter cases by telecaller_id if employeeId is provided
+        // Apply filters
         if (employeeId) {
           casesQuery = casesQuery.eq('telecaller_id', employeeId);
+        }
+        if (teamId) {
+          casesQuery = casesQuery.eq('team_id', teamId);
         }
 
         const { data: cases, error: casesError } = await casesQuery;
@@ -1616,7 +2233,7 @@ export const customerCaseService = {
               latest_call_date: latestLog?.created_at,
               latest_call_status: latestLog?.call_status || c.latest_call_status
             };
-          });
+          }).filter(c => c.latest_call_status !== 'PAYMENT_RECEIVED');
 
           allCases.push(...enrichedCases);
         }
@@ -1630,9 +2247,21 @@ export const customerCaseService = {
     }
   },
 
-  async getTodayCallbackCases(tenantId: string, employeeId?: string): Promise<TeamInchargeCase[]> {
+  async getTodayCallbackCases(tenantId: string, employeeId?: string, teamId?: string): Promise<TeamInchargeCase[]> {
     try {
-      console.log('🔍 getTodayCallbackCases called', { tenantId, employeeId });
+      console.log('🔍 getTodayCallbackCases called', { tenantId, employeeId, teamId });
+
+      // Strict filtering: require either employeeId OR teamId
+      if (employeeId && !teamId) {
+        console.warn('⚠️ Telecaller Callback request without teamId - returning empty');
+        return [];
+      }
+
+      // If no employeeId and no teamId, return empty (prevents showing all callbacks)
+      if (!employeeId && !teamId) {
+        console.warn('⚠️ Callback request without employeeId or teamId - returning empty');
+        return [];
+      }
 
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
@@ -1696,9 +2325,12 @@ export const customerCaseService = {
           .in('id', chunk)
           .order('created_at', { ascending: false });
 
-        // Filter cases by telecaller_id if employeeId is provided
+        // Apply filters
         if (employeeId) {
           casesQuery = casesQuery.eq('telecaller_id', employeeId);
+        }
+        if (teamId) {
+          casesQuery = casesQuery.eq('team_id', teamId);
         }
 
         const { data: cases, error: casesError } = await casesQuery;
@@ -1750,7 +2382,7 @@ export const customerCaseService = {
               latest_call_date: latestLog?.created_at,
               latest_call_status: latestLog?.call_status || c.latest_call_status
             };
-          });
+          }).filter(c => c.latest_call_status !== 'PAYMENT_RECEIVED');
 
           allCases.push(...enrichedCases);
         }

@@ -151,40 +151,56 @@ export const TelecallerTargetService = {
 
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).toISOString();
 
-      const { data: allLogs, error } = await supabase
-        .from(CALL_LOGS_TABLE)
-        .select('created_at, amount_collected')
-        .eq('employee_id', telecallerId)
-        .order('created_at', { ascending: false });
+      // Use a more efficient approach: Fetch only the necessary logs with pagination if needed
+      // Actually, for daily/weekly/monthly metrics, we can use separate count/sum queries
 
-      if (error) {
-        console.error('Error fetching call logs:', error);
-        throw new Error(`Failed to fetch performance metrics: ${error.message}`);
-      }
+      const [
+        { count: dailyCallsCount },
+        { count: weeklyCallsCount },
+        { count: monthlyCallsCount }
+      ] = await Promise.all([
+        supabase.from(CALL_LOGS_TABLE).select('*', { count: 'exact', head: true }).eq('employee_id', telecallerId).gte('created_at', startOfDay),
+        supabase.from(CALL_LOGS_TABLE).select('*', { count: 'exact', head: true }).eq('employee_id', telecallerId).gte('created_at', startOfWeek),
+        supabase.from(CALL_LOGS_TABLE).select('*', { count: 'exact', head: true }).eq('employee_id', telecallerId).gte('created_at', startOfMonth)
+      ]);
 
-      const logs = allLogs || [];
+      // Sum collections (Paginating if necessary)
+      const sumCollections = async (since: string) => {
+        let total = 0;
+        let p = 0;
+        let more = true;
+        while (more) {
+          const { data, error: e } = await supabase
+            .from(CALL_LOGS_TABLE)
+            .select('amount_collected')
+            .eq('employee_id', telecallerId)
+            .gte('created_at', since)
+            .range(p * 1000, (p + 1) * 1000 - 1);
 
-      const dailyLogs = logs.filter(log => log.created_at >= startOfDay);
-      const weeklyLogs = logs.filter(log => log.created_at >= startOfWeek);
-      const monthlyLogs = logs.filter(log => log.created_at >= startOfMonth);
-
-      const calculateCollections = (logsList: typeof logs) => {
-        return logsList.reduce((sum, log) => {
-          if (log.amount_collected) {
-            const amount = parseFloat(String(log.amount_collected));
-            return sum + (isNaN(amount) ? 0 : amount);
+          if (e || !data || data.length === 0) {
+            more = false;
+          } else {
+            total += data.reduce((s, l) => s + (parseFloat(String(l.amount_collected || 0))), 0);
+            if (data.length < 1000) more = false;
+            p++;
           }
-          return sum;
-        }, 0);
+        }
+        return total;
       };
 
+      const [dailyCollections, weeklyCollections, monthlyCollections] = await Promise.all([
+        sumCollections(startOfDay),
+        sumCollections(startOfWeek),
+        sumCollections(startOfMonth)
+      ]);
+
       return {
-        dailyCalls: dailyLogs.length,
-        weeklyCalls: weeklyLogs.length,
-        monthlyCalls: monthlyLogs.length,
-        dailyCollections: calculateCollections(dailyLogs),
-        weeklyCollections: calculateCollections(weeklyLogs),
-        monthlyCollections: calculateCollections(monthlyLogs)
+        dailyCalls: dailyCallsCount || 0,
+        weeklyCalls: weeklyCallsCount || 0,
+        monthlyCalls: monthlyCallsCount || 0,
+        dailyCollections,
+        weeklyCollections,
+        monthlyCollections
       };
     } catch (error) {
       console.error('Error in getPerformanceMetrics:', error);

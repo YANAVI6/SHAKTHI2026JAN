@@ -22,6 +22,10 @@ import { AddEmployeeForm } from './forms/AddEmployeeForm';
 import { EditEmployeeForm } from './forms/EditEmployeeForm';
 import { AddProductForm } from './forms/AddProductForm';
 import { EditProductForm } from './forms/EditProductForm';
+import { ChatPanel } from '../Chat/ChatPanel';
+import { useChannels } from '../../hooks/useChannels';
+import { ChatSyncService } from '../../services/chatSyncService';
+
 import {
   Home,
   Users,
@@ -64,11 +68,25 @@ interface UploadError {
 
 export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ user, onLogout }) => {
   const [activeSection, setActiveSection] = useState('dashboard');
+  const [isChatOpen, setIsChatOpen] = useState(false);
   const [selectedCase, setSelectedCase] = useState<CustomerCase | null>(null);
+  const [selectedTeamId] = useState<string>(''); // For filtering alerts by team
   const toast = useToast();
 
   // Fetch tenant name
   const { tenantName } = useTenantName(user?.tenantId);
+  const { unreadCounts } = useChannels(user?.id || '');
+  const totalUnreadMessages = Object.values(unreadCounts).reduce((a: number, b: number) => a + b, 0);
+
+  React.useEffect(() => {
+    if (user?.id && user?.tenantId) {
+      ChatSyncService.syncUserChannels(
+        user.tenantId,
+        user.id,
+        user.role || 'Admin',
+      );
+    }
+  }, [user?.id, user?.tenantId, user?.role]);
 
   // Custom hooks for state management
   const {
@@ -267,6 +285,7 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
         return (
           <PTPAlertSection
             user={user}
+            teamId={selectedTeamId}
             onCaseClick={(caseItem) => setSelectedCase(caseItem as unknown as CustomerCase)}
           />
         );
@@ -274,6 +293,7 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
         return (
           <CallbackAlertSection
             user={user}
+            teamId={selectedTeamId}
             onCaseClick={(caseItem) => setSelectedCase(caseItem as unknown as CustomerCase)}
           />
         );
@@ -301,9 +321,14 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
       user={user}
       onLogout={onLogout}
       menuItems={menuItems}
-      title="Shakti - Company Admin"
+      title="Shakthi - Company Admin"
       roleColor="bg-blue-500"
       tenantName={tenantName}
+      chatPanel={<ChatPanel onClose={() => setIsChatOpen(false)} />}
+      isChatOpen={isChatOpen}
+      onChatToggle={() => setIsChatOpen(!isChatOpen)}
+      unreadChatCount={totalUnreadMessages}
+      onNotificationClick={() => setActiveSection('notifications')}
     >
       {renderContent()}
 
@@ -324,6 +349,8 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
 
       {/* Toast Notifications */}
       <ToastContainer toasts={toast.toasts} onRemoveToast={toast.removeToast} />
+
+      {/* Chat Panel - Rendered in Layout via split-panel */}
 
       {/* Add Employee Modal */}
       <Modal

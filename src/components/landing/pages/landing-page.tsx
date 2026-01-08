@@ -55,7 +55,7 @@ export default function LandingPage() {
               Ready to transform <br /> your collections?
             </h2>
             <p className="text-white/80 text-xl mb-10 max-w-2xl mx-auto font-light">
-              Join hundreds of agencies maximizing their recovery rates with Shakti's intelligent platform.
+              Join hundreds of agencies maximizing their recovery rates with Shakthi's intelligent platform.
             </p>
             <div className="flex flex-col sm:flex-row justify-center gap-4">
               <Button size="lg" className="bg-white text-sky-600 hover:bg-gray-50 text-lg px-8 h-14 rounded-2xl shadow-xl shadow-black/10 font-bold transition-transform hover:-translate-y-1">

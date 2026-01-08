@@ -10,9 +10,10 @@ interface CallbackAlertSectionProps {
         tenantId?: string;
     };
     onCaseClick?: (caseItem: TeamInchargeCase) => void;
+    teamId?: string;
 }
 
-export const CallbackAlertSection: React.FC<CallbackAlertSectionProps> = ({ user, onCaseClick }) => {
+export const CallbackAlertSection: React.FC<CallbackAlertSectionProps> = ({ user, onCaseClick, teamId }) => {
     const [cases, setCases] = useState<TeamInchargeCase[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -22,7 +23,7 @@ export const CallbackAlertSection: React.FC<CallbackAlertSectionProps> = ({ user
             setIsLoading(true);
             try {
                 const employeeId = user.role === 'Telecaller' ? user.id : undefined;
-                const data = await customerCaseService.getTodayCallbackCases(user.tenantId, employeeId);
+                const data = await customerCaseService.getTodayCallbackCases(user.tenantId, employeeId, teamId);
                 setCases(data);
             } catch (error) {
                 console.error('Error loading callback cases:', error);
@@ -32,7 +33,7 @@ export const CallbackAlertSection: React.FC<CallbackAlertSectionProps> = ({ user
         };
 
         loadCallbackCases();
-    }, [user.tenantId, user.role, user.id]);
+    }, [user.tenantId, user.role, user.id, teamId]);
 
     if (isLoading) {
         return <div className="p-8 text-center text-gray-500">Loading Callback Alerts...</div>;
@@ -130,8 +131,8 @@ export const CallbackAlertSection: React.FC<CallbackAlertSectionProps> = ({ user
                                         </td>
                                         <td className="px-6 py-4">
                                             <div className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium ${(caseItem.dpd || 0) > 90 ? 'bg-red-100 text-red-700' :
-                                                    (caseItem.dpd || 0) > 30 ? 'bg-orange-100 text-orange-700' :
-                                                        'bg-yellow-100 text-yellow-700'
+                                                (caseItem.dpd || 0) > 30 ? 'bg-orange-100 text-orange-700' :
+                                                    'bg-yellow-100 text-yellow-700'
                                                 }`}>
                                                 {caseItem.dpd || 0} Days
                                             </div>

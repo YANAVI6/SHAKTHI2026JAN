@@ -14,6 +14,13 @@ export interface Employee {
   updatedAt: Date;
   createdBy: string;
   teamId?: string;
+  dob?: string;
+  gender?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  email?: string;
+  avatarUrl?: string;
 }
 
 export interface CreateEmployeeRequest {
@@ -30,6 +37,13 @@ export interface UpdateEmployeeRequest {
   empId?: string;
   role?: EmployeeRole;
   password?: string;
+  dob?: string;
+  gender?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  email?: string;
+  avatarUrl?: string;
 }
 
 export interface EmployeeFormData {

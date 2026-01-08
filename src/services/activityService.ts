@@ -102,16 +102,12 @@ export const activityService = {
 
             const hasMore = employees.length === pageSize;
 
-            // Fetch ALL activity sessions for today (00:00 to now) to get complete daily history
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
+            // Fetch activity sessions for all employees
+            // With the unique constraint (tenant_id, employee_id), there is only one record per user.
             const { data: activities, error: actError } = await supabase
                 .from(USER_ACTIVITY_TABLE)
                 .select('*')
-                .eq('tenant_id', tenantId)
-                .gte('login_time', today.toISOString())
-                .order('login_time', { ascending: true }); // Order by time for correct sequence
+                .eq('tenant_id', tenantId);
 
             if (actError) console.error('Error fetching activities:', actError);
 
@@ -399,15 +395,12 @@ export const activityService = {
             }
 
             if (sessions.length > 1) {
+                // This shouldn't happen with the unique constraint, but keeping for safety/cleanup
                 const newestSessionId = sessions[0].id;
                 await supabase
                     .from(USER_ACTIVITY_TABLE)
-                    .update({
-                        logout_time: new Date().toISOString(),
-                        status: 'Offline'
-                    })
+                    .delete()
                     .eq('employee_id', employeeId)
-                    .is('logout_time', null)
                     .neq('id', newestSessionId);
             }
 

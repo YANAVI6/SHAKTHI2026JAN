@@ -1,4 +1,4 @@
-import { ChartOptions } from 'chart.js';
+import { ChartOptions, TooltipItem } from 'chart.js';
 
 export const getColumnChartConfig = (
   labels: string[],
@@ -72,7 +72,7 @@ export const getColumnChartConfig = (
             size: 13
           },
           callbacks: {
-            label: function (context) {
+            label: function (context: TooltipItem<'bar'>) {
               const label = context.dataset.label || '';
               const value = context.parsed.y;
               if (value === null) return `${label}: N/A`;
@@ -91,7 +91,7 @@ export const getColumnChartConfig = (
             font: {
               size: 11
             },
-            callback: function (value) {
+            callback: function (value: string | number) {
               if (isCurrency) {
                 return '₹' + (value as number).toLocaleString('en-IN', { maximumFractionDigits: 0 });
               }
@@ -178,7 +178,7 @@ export const getPieChartConfig = (
             size: 13
           },
           callbacks: {
-            label: function (context) {
+            label: function (context: TooltipItem<'pie'>) {
               const label = context.label || '';
               const value = context.parsed;
               const total = target;

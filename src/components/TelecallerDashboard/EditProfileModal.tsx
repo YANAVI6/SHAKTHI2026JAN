@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { X } from 'lucide-react';
+import React, { useState, useRef } from 'react';
+import { X, Camera, User } from 'lucide-react';
 
 interface EditProfileModalProps {
   isOpen: boolean;
@@ -17,6 +17,7 @@ interface ProfileData {
   address: string;
   city: string;
   state: string;
+  avatarUrl?: string;
 }
 
 export const EditProfileModal: React.FC<EditProfileModalProps> = ({
@@ -26,6 +27,7 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
   initialData
 }) => {
   const [formData, setFormData] = useState<ProfileData>(initialData);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -35,6 +37,22 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
   const handleChange = (field: keyof ProfileData, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) { // 2MB limit
+        alert("File size should be less than 2MB");
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({ ...prev, avatarUrl: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   if (!isOpen) return null;
@@ -62,6 +80,34 @@ export const EditProfileModal: React.FC<EditProfileModalProps> = ({
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
+
+          {/* Avatar Upload */}
+          <div className="flex justify-center mb-6">
+            <div className="relative">
+              <div className="w-24 h-24 rounded-full border-4 border-gray-100 bg-gray-50 flex items-center justify-center overflow-hidden">
+                {formData.avatarUrl ? (
+                  <img src={formData.avatarUrl} alt="Profile" className="w-full h-full object-cover" />
+                ) : (
+                  <User className="w-12 h-12 text-gray-400" />
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute bottom-0 right-0 max-w-[2rem] max-h-[2rem] p-1.5 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors shadow-md border-2 border-white flex items-center justify-center"
+              >
+                <Camera className="w-3.5 h-3.5" />
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileChange}
+                accept="image/*"
+                className="hidden"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Full Name

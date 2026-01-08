@@ -61,12 +61,22 @@ describe('activityService', () => {
                     };
                 }
                 if (table === 'user_activity') {
-                    return {
+                    // Create a thenable object to simulate the awaitable query builder
+                    const mockBuilder = {
                         select: vi.fn().mockReturnThis(),
                         eq: vi.fn().mockReturnThis(),
                         gte: vi.fn().mockReturnThis(),
-                        order: vi.fn().mockResolvedValue({ data: mockActivities, error: null })
+                        order: vi.fn().mockReturnThis(),
+                        then: (resolve: (value: { data: unknown[]; error: null }) => void) => {
+                            // Add last_active_time to mockActivities to satisfy logic
+                            const enrichedActivities = mockActivities.map(a => ({
+                                ...a,
+                                last_active_time: new Date().toISOString()
+                            }));
+                            resolve({ data: enrichedActivities, error: null });
+                        }
                     };
+                    return mockBuilder;
                 }
                 return {};
             });

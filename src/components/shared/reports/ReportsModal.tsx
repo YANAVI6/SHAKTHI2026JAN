@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, FileText, Download, Calendar } from 'lucide-react';
+import { supabase } from '../../../lib/supabase';
 import { ReportService } from '../../../services/reportService';
 import { ReportExportService } from '../../../utils/reportExport';
 import { ReportFilters } from './ReportFilters';
@@ -44,6 +45,8 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
   const [telecaller, setTelecaller] = useState<TelecallerPerformanceData | null>(null);
   const [metrics, setMetrics] = useState<PerformanceMetrics | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [availableTelecallers, setAvailableTelecallers] = useState<{ id: string; name: string; emp_id: string }[]>([]);
+  const [availableTeams, setAvailableTeams] = useState<{ id: string; team_name: string }[]>([]);
 
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -99,6 +102,26 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
       setIsLoading(false);
     }
   }, [activeTab, tenantId, filters, userRole, userId, canViewTeams]);
+
+  useEffect(() => {
+    const fetchFilterData = async () => {
+      if (!isOpen || !tenantId) return;
+
+      try {
+        const [{ data: teamsData }, { data: empsData }] = await Promise.all([
+          supabase.from('teams').select('id, team_name:name').eq('tenant_id', tenantId).eq('status', 'active'),
+          supabase.from('employees').select('id, name, emp_id').eq('tenant_id', tenantId).ilike('role', 'telecaller').eq('status', 'active')
+        ]);
+
+        setAvailableTeams(teamsData || []);
+        setAvailableTelecallers(empsData || []);
+      } catch (error) {
+        console.error('Error fetching filter data:', error);
+      }
+    };
+
+    fetchFilterData();
+  }, [isOpen, tenantId]);
 
   useEffect(() => {
     if (isOpen) {
@@ -242,6 +265,8 @@ export const ReportsModal: React.FC<ReportsModalProps> = ({
               onFiltersChange={setFilters}
               showTelecallerFilter={canViewTeams}
               showTeamFilter={canViewTeams}
+              telecallers={availableTelecallers}
+              teams={availableTeams}
             />
 
             <div ref={contentRef} className="mt-6">

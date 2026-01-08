@@ -37,11 +37,13 @@ export const NotificationManager: React.FC = () => {
             setLoading(true);
 
             // Get team_id from employees table
-            const { data: employee } = await supabase
+            const { data: employees } = await supabase
                 .from('employees')
                 .select('team_id')
                 .eq('id', user.id)
-                .single();
+                .limit(1);
+
+            const employee = employees?.[0];
 
             if (!employee?.team_id) {
                 console.warn('No team_id found for user');

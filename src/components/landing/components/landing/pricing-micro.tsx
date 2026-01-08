@@ -3,7 +3,11 @@ import { Check } from "lucide-react";
 import { motion, useSpring, useTransform, animate } from "framer-motion";
 import { useEffect, useRef } from "react";
 
-export default function PricingMicro() {
+interface PricingMicroProps {
+    onEnquiryClick?: () => void;
+}
+
+export default function PricingMicro({ onEnquiryClick }: PricingMicroProps) {
     const features = [
         "Live Analytics & Monitoring",
         "Smart Gamification Engine",
@@ -115,7 +119,7 @@ export default function PricingMicro() {
                                 ))}
                             </div>
 
-                            <Button className="w-full h-16 bg-gradient-to-r from-indigo-500 to-blue-600 hover:opacity-90 active:scale-[0.98] text-white text-lg font-bold rounded-2xl shadow-xl shadow-indigo-200 transition-all flex items-center justify-center gap-2">
+                            <Button onClick={onEnquiryClick} className="w-full h-16 bg-gradient-to-r from-indigo-500 to-blue-600 hover:opacity-90 active:scale-[0.98] text-white text-lg font-bold rounded-2xl shadow-xl shadow-indigo-200 transition-all flex items-center justify-center gap-2">
                                 Start 7-Day Free Trial
                                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7l5 5m0 0l-5 5m5-5H6" />

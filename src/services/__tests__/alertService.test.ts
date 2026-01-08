@@ -94,7 +94,7 @@ describe('AlertService', () => {
                 return builder;
             });
 
-            const result = await AlertService.getAlerts(userId);
+            const result = await AlertService.getAlerts(userId, 'team-1');
 
             expect(result.cases.length).toBeGreaterThan(0);
 

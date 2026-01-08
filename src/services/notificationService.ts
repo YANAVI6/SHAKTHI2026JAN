@@ -62,6 +62,12 @@ export const NotificationService = {
         localStorage.setItem('dismissed_notifications', JSON.stringify(Array.from(dismissed)));
     },
 
+    markAllAsRead(notificationIds: string[]) {
+        const dismissed = this.getDismissedIds();
+        notificationIds.forEach(id => dismissed.add(id));
+        localStorage.setItem('dismissed_notifications', JSON.stringify(Array.from(dismissed)));
+    },
+
     async createNotification(notification: Omit<Notification, 'id' | 'created_at'>): Promise<void> {
         try {
             const { error } = await supabase

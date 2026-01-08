@@ -62,28 +62,17 @@ export const CaseManagement: React.FC = () => {
       const totalTeams = userTeams.length;
       const totalTelecallers = userTeams.reduce((sum, team) => sum + (team.telecallers?.length || 0), 0);
 
-      // Get case counts for all teams
-      let totalCases = 0;
-      let unassignedCases = 0;
-      let assignedCases = 0;
-      let inProgressCases = 0;
-      let closedCases = 0;
+      // Get case counts for all teams efficiently
+      const teamIds = userTeams.map(t => t.id);
+      console.log('Fetching stats for teams:', teamIds);
 
-      for (const team of userTeams) {
-        console.log(`Loading cases for team: ${team.name} (${team.id})`);
-        try {
-          const teamCases = await customerCaseService.getTeamCases(user.tenantId, team.id);
-          console.log(`Found ${teamCases.length} cases for team ${team.name}`);
+      const stats = await customerCaseService.getTeamInchargeStats(user.tenantId, teamIds);
 
-          totalCases += teamCases.length;
-          unassignedCases += teamCases.filter(c => !c.telecaller_id).length;
-          assignedCases += teamCases.filter(c => c.telecaller_id && c.case_status !== 'closed' && c.case_status !== 'resolved').length;
-          inProgressCases += teamCases.filter(c => c.case_status === 'in_progress').length;
-          closedCases += teamCases.filter(c => c.case_status === 'closed' || c.case_status === 'resolved').length;
-        } catch (teamError) {
-          console.error(`Error loading cases for team ${team.name}:`, teamError);
-        }
-      }
+      const totalCases = stats.totalCases;
+      const unassignedCases = stats.unassignedCases;
+      const assignedCases = stats.assignedCases;
+      const inProgressCases = stats.inProgressCases;
+      const closedCases = stats.closedCases;
 
       console.log('Dashboard stats calculated:', {
         totalTeams,

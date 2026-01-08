@@ -1,8 +1,16 @@
-import React, { useState, useMemo } from 'react';
+import React from 'react';
 import { Eye, Phone, Copy, Filter, ArrowUpDown, Download, AlertTriangle } from 'lucide-react';
 import { CustomerCase, ColumnConfig } from './types';
-import { getDPDColor, copyToClipboard, filterCases, paginateCases, getTotalPages, debounce } from './utils';
+import { getDPDColor, copyToClipboard, getTotalPages, debounce } from './utils';
 import { customerCaseService } from '../../services/customerCaseService';
+
+export interface CustomerCaseFilters {
+  searchTerm: string;
+  dpd: string;
+  callResponse: string;
+  sortBy: string;
+  sortOrder: 'asc' | 'desc';
+}
 
 interface CustomerCaseTableProps {
   customerCases: CustomerCase[];
@@ -10,10 +18,23 @@ interface CustomerCaseTableProps {
   isLoading: boolean;
   tenantId: string;
   empId: string;
-  casesWithPendingFollowups?: string[];
+
+  // Pagination & Data Props
+  totalCount: number;
+  currentPage: number;
+  itemsPerPage: number;
+  onPageChange: (page: number) => void;
+  onPageSizeChange: (size: number) => void;
+
+  // Filter Props
+  filters: CustomerCaseFilters;
+  onFilterChange: (filters: CustomerCaseFilters) => void;
+
+  // Pending Followups specific props
   showPendingFollowupsOnly?: boolean;
-  viewedCases?: Set<string>;
   onClearFollowupFilter?: () => void;
+
+  viewedCases?: Set<string>;
   onViewDetails: (caseData: CustomerCase) => void;
   onCallCustomer: (caseData: CustomerCase) => void;
   onUpdateStatus?: (caseData: CustomerCase) => void;
@@ -25,120 +46,48 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
   isLoading,
   tenantId,
   empId,
-  casesWithPendingFollowups = [],
+  totalCount,
+  currentPage,
+  itemsPerPage,
+  onPageChange,
+  onPageSizeChange,
+  filters,
+  onFilterChange,
   showPendingFollowupsOnly = false,
   viewedCases = new Set(),
   onClearFollowupFilter,
   onViewDetails,
   onCallCustomer
 }) => {
-  console.log('🔷 CustomerCaseTable rendered with', customerCases.length, 'cases');
-  console.log('🔷 isLoading:', isLoading);
-  console.log('🔷 columnConfigs:', columnConfigs.length, 'configs');
+  // We keep debounced search locally but it triggers onFilterChange
+  // No, if it's controlled, the value in input must vary.
+  // We can keep local state for input value to avoid lag, and debounce the callback.
+  const [localSearchTerm, setLocalSearchTerm] = React.useState(filters.searchTerm);
 
+  React.useEffect(() => {
+    setLocalSearchTerm(filters.searchTerm);
+  }, [filters.searchTerm]);
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [currentPage, setCurrentPage] = useState(1);
-  const [itemsPerPage, setItemsPerPage] = useState(10);
-  const [dpdFilter, setDpdFilter] = useState<string>('all');
-  const [callResponseFilter, setCallResponseFilter] = useState<string>('all');
-  const [sortBy, setSortBy] = useState<string>('dpd');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('desc');
-
-  // Debounced search
-  const debouncedSearch = useMemo(
-    () => debounce((...args: unknown[]) => setSearchTerm(args[0] as string), 300),
-    []
+  const debouncedSearch = React.useMemo(
+    () => debounce<(term: string) => void>((term: string) => {
+      onFilterChange({ ...filters, searchTerm: term });
+      onPageChange(1); // Reset to page 1 on search
+    }, 500),
+    [filters, onFilterChange, onPageChange]
   );
 
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const term = e.target.value;
-    debouncedSearch(term);
-    setCurrentPage(1); // Reset to first page on search
+    const val = e.target.value;
+    setLocalSearchTerm(val);
+    debouncedSearch(val);
   };
 
-  // Filter, sort, and paginate cases
-  const filteredCases = useMemo(() => {
-    console.log('🔶 Filtering cases - Starting with', customerCases.length, 'cases');
-    let cases = filterCases(customerCases, searchTerm);
-    console.log('🔶 After search filter:', cases.length, 'cases');
+  const handleFilterChange = (key: keyof CustomerCaseFilters, value: string) => {
+    onFilterChange({ ...filters, [key]: value });
+    onPageChange(1);
+  };
 
-    // Apply pending follow-ups filter
-    if (showPendingFollowupsOnly && casesWithPendingFollowups.length > 0) {
-      cases = cases.filter(c => casesWithPendingFollowups.includes(c.id as string));
-      console.log('🔶 After pending followups filter:', cases.length, 'cases');
-    }
-
-    // Apply DPD filter
-    if (dpdFilter !== 'all') {
-      cases = cases.filter(c => {
-        const dpd = c.dpd || 0;
-        if (dpdFilter === '0-30') return dpd <= 30;
-        if (dpdFilter === '31-60') return dpd > 30 && dpd <= 60;
-        if (dpdFilter === '61-90') return dpd > 60 && dpd <= 90;
-        if (dpdFilter === '91-100') return dpd > 90 && dpd <= 100;
-        if (dpdFilter === '101-200') return dpd > 100 && dpd <= 200;
-        if (dpdFilter === '201-300') return dpd > 200 && dpd <= 300;
-        if (dpdFilter === '301-500') return dpd > 300 && dpd <= 500;
-        if (dpdFilter === '501-1000') return dpd > 500 && dpd <= 1000;
-        if (dpdFilter === '1001-1500') return dpd > 1000 && dpd <= 1500;
-        if (dpdFilter === '1501-2000') return dpd > 1500 && dpd <= 2000;
-        if (dpdFilter === '2001-2500') return dpd > 2000 && dpd <= 2500;
-        if (dpdFilter === '2500+') return dpd > 2500;
-        return true;
-      });
-      console.log('🔶 After DPD filter:', cases.length, 'cases');
-    }
-
-    // Apply Call Response Filter
-    if (callResponseFilter !== 'all') {
-      cases = cases.filter(c => {
-        const status = (c.latest_call_status || '').toUpperCase();
-        if (callResponseFilter === 'PTP') return status === 'PTP';
-        if (callResponseFilter === 'CONNECTED') return status === 'CONNECTED';
-        if (callResponseFilter === 'RNR') return status === 'RNR';
-        if (callResponseFilter === 'WN') return status === 'WN' || status === 'WRONG NUMBER';
-        if (callResponseFilter === 'SW') return status === 'SW' || status === 'SWITCH OFF' || status === 'SWITCHED OFF';
-        if (callResponseFilter === 'BUSY') return status === 'BUSY';
-        if (callResponseFilter === 'CALL_BACK') return status === 'CALL_BACK' || status === 'CALLBACK' || status === 'CALL BACK';
-        if (callResponseFilter === 'CD') return status === 'CD' || status === 'DISCONNECTED';
-        if (callResponseFilter === 'NC') return status === 'NC' || status === 'NOT REACHABLE' || status === 'NOT RECHABLE';
-        return true;
-      });
-      console.log('🔶 After Call Response filter:', cases.length, 'cases');
-    }
-
-    // Apply sorting
-    cases.sort((a, b) => {
-      let aVal: unknown = a[sortBy as keyof CustomerCase];
-      let bVal: unknown = b[sortBy as keyof CustomerCase];
-
-      // Handle numeric fields
-      if (sortBy === 'dpd') {
-        aVal = a.dpd || 0;
-        bVal = b.dpd || 0;
-      } else if (sortBy.includes('Amount')) {
-        aVal = parseFloat(String(aVal).replace(/[^0-9.-]/g, '')) || 0;
-        bVal = parseFloat(String(bVal).replace(/[^0-9.-]/g, '')) || 0;
-      }
-
-      if (sortOrder === 'asc') {
-        return (aVal as number) > (bVal as number) ? 1 : -1;
-      } else {
-        return (aVal as number) < (bVal as number) ? 1 : -1;
-      }
-    });
-
-    console.log('🔶 Final filtered cases:', cases.length);
-    return cases;
-  }, [customerCases, searchTerm, dpdFilter, callResponseFilter, sortBy, sortOrder, showPendingFollowupsOnly, casesWithPendingFollowups]);
-
-  const totalPages = getTotalPages(filteredCases.length, itemsPerPage);
-  const paginatedCases = useMemo(() => {
-    const paginated = paginateCases(filteredCases, currentPage, itemsPerPage);
-    console.log('🔸 Paginated cases for page', currentPage, ':', paginated.length, 'cases');
-    return paginated;
-  }, [filteredCases, currentPage, itemsPerPage]);
+  const totalPages = getTotalPages(totalCount, itemsPerPage);
 
   const getActiveColumns = (): ColumnConfig[] => {
     const columns = columnConfigs.length > 0
@@ -203,11 +152,21 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
           case 'CALL BACK':
             statusColor = 'bg-yellow-100 text-yellow-800';
             break;
+          case 'BPTP':
+          case 'RTP':
+          case 'REFUSED':
+            statusColor = 'bg-red-200 text-red-900';
+            break;
           case 'WN':
           case 'WRONG NUMBER':
           case 'CD':
           case 'DISCONNECTED':
+          case 'CALL DISCONNECTED':
             statusColor = 'bg-gray-200 text-gray-600';
+            break;
+          case 'INC':
+          case 'INCOMING':
+            statusColor = 'bg-blue-100 text-blue-800';
             break;
         }
 
@@ -410,7 +369,7 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
               <div className="flex items-center space-x-2">
                 <AlertTriangle className="w-5 h-5 text-orange-600" />
                 <span className="text-sm font-medium text-orange-800">
-                  Showing only cases with pending follow-ups ({filteredCases.length} cases)
+                  Showing only cases with pending follow-ups ({customerCases.length} cases)
                 </span>
               </div>
               <button
@@ -431,11 +390,12 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
               <input
                 type="text"
                 placeholder="Search by name, loan ID, or mobile..."
+                value={localSearchTerm}
                 onChange={handleSearchChange}
                 className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 w-80"
               />
               <span className="text-sm text-gray-600">
-                Showing {filteredCases.length === 0 ? 0 : ((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, filteredCases.length)} of {filteredCases.length} cases
+                Showing {totalCount === 0 ? 0 : ((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, totalCount)} of {totalCount} cases
               </span>
             </div>
           </div>
@@ -445,11 +405,8 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
               <Filter className="w-4 h-4 text-gray-500" />
               <span className="text-sm font-medium text-gray-700">DPD Filter:</span>
               <select
-                value={dpdFilter}
-                onChange={(e) => {
-                  setDpdFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
+                value={filters.dpd}
+                onChange={(e) => handleFilterChange('dpd', e.target.value)}
                 className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
                 <option value="all">All Cases</option>
@@ -472,23 +429,24 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
               <Phone className="w-4 h-4 text-gray-500" />
               <span className="text-sm font-medium text-gray-700">Response:</span>
               <select
-                value={callResponseFilter}
-                onChange={(e) => {
-                  setCallResponseFilter(e.target.value);
-                  setCurrentPage(1);
-                }}
+                value={filters.callResponse}
+                onChange={(e) => handleFilterChange('callResponse', e.target.value)}
                 className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
                 <option value="all">All Responses</option>
                 <option value="CONNECTED">Connected</option>
                 <option value="PTP">PTP</option>
-                <option value="RNR">RNR</option>
-                <option value="NC">Not Reachable</option>
-                <option value="SW">Switch Off</option>
+                <option value="FUTURE_PTP">Future PTP</option>
+                <option value="WN">Wrong Number</option>
+                <option value="SW">Switched Off</option>
+                <option value="RNR">RNR / Ringing</option>
                 <option value="BUSY">Busy</option>
                 <option value="CALL_BACK">Callback</option>
-                <option value="WN">Wrong Number</option>
-                <option value="CD">Disconnected</option>
+                <option value="BPTP">BPTP</option>
+                <option value="RTP">RTP (Refused)</option>
+                <option value="NC">No Contact</option>
+                <option value="CD">Call Disconnected</option>
+                <option value="INC">Incoming</option>
               </select>
             </div>
 
@@ -496,8 +454,8 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
               <ArrowUpDown className="w-4 h-4 text-gray-500" />
               <span className="text-sm font-medium text-gray-700">Sort By:</span>
               <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
+                value={filters.sortBy}
+                onChange={(e) => handleFilterChange('sortBy', e.target.value)}
                 className="px-3 py-1 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
                 <option value="dpd">DPD</option>
@@ -507,10 +465,10 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
                 <option value="lastPaidDate">Last Paid Date</option>
               </select>
               <button
-                onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
+                onClick={() => handleFilterChange('sortOrder', filters.sortOrder === 'asc' ? 'desc' : 'asc')}
                 className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 transition-colors"
               >
-                {sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
+                {filters.sortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
               </button>
             </div>
           </div>
@@ -539,19 +497,18 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
                     </div>
                   </td>
                 </tr>
-              ) : paginatedCases.length === 0 ? (
+              ) : customerCases.length === 0 ? (
                 <tr>
                   <td colSpan={getActiveColumns().length} className="px-4 py-8 text-center text-gray-500">
-                    {searchTerm ? 'No cases match your search criteria' : 'No cases assigned yet'}
+                    {filters.searchTerm ? 'No cases match your search criteria' : 'No cases available'}
                   </td>
                 </tr>
               ) : (
-                paginatedCases.map((case_, index) => {
-                  const isViewed = viewedCases.has(case_.id || '');
+                customerCases.map((case_, index) => {
                   return (
                     <tr
                       key={case_.id || index}
-                      className={`hover:bg-gray-50 transition-colors ${isViewed ? 'bg-gray-50/50' : 'bg-white'}`}
+                      className={`hover:bg-gray-50 transition-colors ${viewedCases.has(case_.id || '') ? 'bg-gray-50/50' : 'bg-white'}`}
                     >
                       {getActiveColumns().filter(col => col.isActive).map((column) => (
                         <td key={column.id} className="px-4 py-4 whitespace-nowrap text-sm">
@@ -566,7 +523,7 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
           </table>
         </div>
 
-        {/* Pagination */}
+        {/* Pagination Controls */}
         {totalPages > 1 && (
           <div className="mt-6 flex items-center justify-between">
             <div className="flex items-center space-x-4">
@@ -575,10 +532,7 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
               </span>
               <select
                 value={itemsPerPage}
-                onChange={(e) => {
-                  setItemsPerPage(Number(e.target.value));
-                  setCurrentPage(1);
-                }}
+                onChange={(e) => onPageSizeChange(Number(e.target.value))}
                 className="px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
               >
                 <option value={10}>10 per page</option>
@@ -589,7 +543,7 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
             </div>
             <div className="flex space-x-2">
               <button
-                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                onClick={() => onPageChange(Math.max(currentPage - 1, 1))}
                 disabled={currentPage === 1}
                 className="px-3 py-2 bg-gray-300 hover:bg-gray-400 disabled:bg-gray-200 disabled:cursor-not-allowed text-gray-700 rounded-md text-sm font-medium"
               >
@@ -612,7 +566,7 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
                 return pages.map(page => (
                   <button
                     key={page}
-                    onClick={() => setCurrentPage(page)}
+                    onClick={() => onPageChange(page)}
                     className={`px-3 py-2 rounded-md text-sm font-medium ${currentPage === page
                       ? 'bg-purple-600 text-white'
                       : 'bg-gray-300 hover:bg-gray-400 text-gray-700'
@@ -623,7 +577,7 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
                 ));
               })()}
               <button
-                onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                onClick={() => onPageChange(Math.min(currentPage + 1, totalPages))}
                 disabled={currentPage === totalPages}
                 className="px-3 py-2 bg-gray-300 hover:bg-gray-400 disabled:bg-gray-200 disabled:cursor-not-allowed text-gray-700 rounded-md text-sm font-medium"
               >

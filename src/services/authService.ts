@@ -15,6 +15,8 @@ export interface AuthenticatedUser {
   name?: string;
   role?: string;
   teamId?: string;
+  mobile?: string;
+  avatarUrl?: string;
 }
 
 export const loginSuperAdmin = async (credentials: LoginCredentials): Promise<AuthenticatedUser> => {
@@ -103,6 +105,39 @@ export const loginCompanyAdmin = async (credentials: LoginCredentials, tenantSlu
       throw new Error('Invalid employee ID or password');
     }
 
+    // Password is valid - now track login activity
+    console.log('✅ Password valid, tracking login activity for Company Admin:', adminData.employee_id);
+
+    try {
+      // Use upsert to handle login activity - eliminates race conditions
+      // This will insert if not exists, or update if exists based on (tenant_id, employee_id)
+      const { error: upsertError } = await supabase
+        .from(USER_ACTIVITY_TABLE)
+        .upsert({
+          tenant_id: adminData.tenant_id,
+          employee_id: adminData.id,
+          login_time: new Date().toISOString(),
+          last_active_time: new Date().toISOString(),
+          status: 'Online',
+          logout_time: null,
+          logout_reason: null,
+          total_break_time: 0,
+          total_idle_time: 0
+        }, {
+          onConflict: 'tenant_id,employee_id',
+          ignoreDuplicates: false
+        });
+
+      if (upsertError) {
+        console.error('❌ Error tracking login activity:', upsertError);
+      } else {
+        console.log('✅ Login activity tracked for Company Admin:', adminData.employee_id);
+      }
+    } catch (activityError) {
+      console.error('❌ Error tracking login activity:', activityError);
+      // Don't fail login if activity tracking fails
+    }
+
     return {
       id: adminData.id,
       username: adminData.employee_id,
@@ -115,7 +150,7 @@ export const loginCompanyAdmin = async (credentials: LoginCredentials, tenantSlu
 
   let employeeQuery = supabase
     .from(EMPLOYEE_TABLE)
-    .select('id, name, emp_id, mobile, password_hash, role, tenant_id, team_id, status')
+    .select('id, name, emp_id, mobile, email, password_hash, role, tenant_id, team_id, status, avatar_url')
     .eq('emp_id', username);
 
   if (tenantId) {
@@ -149,40 +184,29 @@ export const loginCompanyAdmin = async (credentials: LoginCredentials, tenantSlu
     console.log('✅ Password valid, tracking login activity for employee:', employeeData.emp_id);
 
     try {
-      // First, close any existing open sessions
-      const { error: closeError } = await supabase
+      // Use upsert to handle login activity - eliminates race conditions
+      // This will insert if not exists, or update if exists based on (tenant_id, employee_id)
+      const { error: upsertError } = await supabase
         .from(USER_ACTIVITY_TABLE)
-        .update({
-          logout_time: new Date().toISOString(),
-          status: 'Offline',
-          logout_reason: 'New login session started'
-        })
-        .eq('employee_id', employeeData.id)
-        .is('logout_time', null);
-
-      if (closeError) {
-        console.error('⚠️ Error closing previous sessions:', closeError);
-      } else {
-        console.log('✅ Closed any existing open sessions');
-      }
-
-      // Create new activity record
-      const { error: insertError } = await supabase
-        .from(USER_ACTIVITY_TABLE)
-        .insert({
+        .upsert({
           tenant_id: employeeData.tenant_id,
           employee_id: employeeData.id,
           login_time: new Date().toISOString(),
           last_active_time: new Date().toISOString(),
           status: 'Online',
+          logout_time: null,
+          logout_reason: null,
           total_break_time: 0,
           total_idle_time: 0
+        }, {
+          onConflict: 'tenant_id,employee_id',
+          ignoreDuplicates: false
         });
 
-      if (insertError) {
-        console.error('⚠️ Error creating activity record:', insertError);
+      if (upsertError) {
+        console.error('❌ Error tracking login activity:', upsertError);
       } else {
-        console.log('✅ Created new activity record for employee:', employeeData.emp_id);
+        console.log('✅ Login activity tracked for employee:', employeeData.emp_id);
       }
     } catch (activityError) {
       console.error('❌ Error tracking login activity:', activityError);
@@ -192,11 +216,13 @@ export const loginCompanyAdmin = async (credentials: LoginCredentials, tenantSlu
     return {
       id: employeeData.id,
       username: employeeData.emp_id,
-      email: employeeData.mobile || employeeData.name,
+      email: employeeData.email,
+      mobile: employeeData.mobile,
       name: employeeData.name,
       tenantId: employeeData.tenant_id,
       role: employeeData.role || 'Employee',
-      teamId: employeeData.team_id
+      teamId: employeeData.team_id,
+      avatarUrl: employeeData.avatar_url
     };
   }
 

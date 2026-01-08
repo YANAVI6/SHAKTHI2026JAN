@@ -21,19 +21,19 @@ export default function FAQ() {
         <Accordion type="single" collapsible className="w-full space-y-4">
           <AccordionItem value="item-pricing" className="bg-emerald-50 px-6 rounded-xl border border-emerald-100 shadow-sm">
             <AccordionTrigger className="text-lg font-bold py-6 hover:no-underline text-emerald-900">
-              How much does Shakti cost?
+              How much does Shakthi cost?
             </AccordionTrigger>
             <AccordionContent className="text-emerald-800 pb-6 text-base leading-relaxed font-medium">
-              Shakti starts at just ₹10 per telecaller per day. You only pay for active users, with no long-term contracts, no setup fees, and absolutely zero hidden charges.
+              Shakthi starts at just ₹10 per telecaller per day. You only pay for active users, with no long-term contracts, no setup fees, and absolutely zero hidden charges.
             </AccordionContent>
           </AccordionItem>
 
           <AccordionItem value="item-1" className="bg-white px-6 rounded-xl border border-gray-100 shadow-sm">
             <AccordionTrigger className="text-lg font-semibold py-6 hover:no-underline">
-              Is Shakti compatible with my existing loan software?
+              Is Shakthi compatible with my existing loan software?
             </AccordionTrigger>
             <AccordionContent className="text-gray-600 pb-6 text-base leading-relaxed">
-              Yes! Shakti is designed to integrate seamlessly with major loan management systems (LMS) and banking software via API. We also support bulk Excel/CSV uploads for immediate starts.
+              Yes! Shakthi is designed to integrate seamlessly with major loan management systems (LMS) and banking software via API. We also support bulk Excel/CSV uploads for immediate starts.
             </AccordionContent>
           </AccordionItem>
 
@@ -42,7 +42,7 @@ export default function FAQ() {
               How does the gamification work?
             </AccordionTrigger>
             <AccordionContent className="text-gray-600 pb-6 text-base leading-relaxed">
-              Shakti turns recovery targets into a game. Agents earn points for calls made, promises to pay (PTP) secured, and actual revenue collected. Leaderboards update in real-time, and "Celebration Mode" triggers animations for big wins.
+              Shakthi turns recovery targets into a game. Agents earn points for calls made, promises to pay (PTP) secured, and actual revenue collected. Leaderboards update in real-time, and "Celebration Mode" triggers animations for big wins.
             </AccordionContent>
           </AccordionItem>
 
@@ -51,7 +51,7 @@ export default function FAQ() {
               Is my data secure?
             </AccordionTrigger>
             <AccordionContent className="text-gray-600 pb-6 text-base leading-relaxed">
-              Absolutely. We use enterprise-grade encryption for all data at rest and in transit. Shakti is ISO 27001 compliant and follows strict data privacy guidelines relevant to financial institutions.
+              Absolutely. We use enterprise-grade encryption for all data at rest and in transit. Shakthi is ISO 27001 compliant and follows strict data privacy guidelines relevant to financial institutions.
             </AccordionContent>
           </AccordionItem>
 

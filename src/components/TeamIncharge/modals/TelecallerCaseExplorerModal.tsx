@@ -1,5 +1,4 @@
-
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { X, Search, FileSpreadsheet, Filter, CheckCircle, Clock, XCircle, AlertCircle, Phone } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { customerCaseService } from '../../../services/customerCaseService';
@@ -37,12 +36,36 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
 
     const [selectedTeamId, setSelectedTeamId] = useState<string>('');
     const [selectedTelecallerId, setSelectedTelecallerId] = useState<string>('');
-    const [selectedStatus, setSelectedStatus] = useState<string>('all');
+    const [selectedCallResponse, setSelectedCallResponse] = useState<string>('all');
     const [searchText, setSearchText] = useState<string>('');
+    const [debouncedSearchText, setDebouncedSearchText] = useState<string>('');
 
-    const [allCases, setAllCases] = useState<TeamInchargeCase[]>([]);
+    // Pagination State
+    const [cases, setCases] = useState<TeamInchargeCase[]>([]);
     const [loading, setLoading] = useState<boolean>(false);
+    const [loadingMore, setLoadingMore] = useState<boolean>(false);
+    const [page, setPage] = useState<number>(0);
+    const [hasMore, setHasMore] = useState<boolean>(true);
+    const [totalCount, setTotalCount] = useState<number>(0);
+
+    // Observer
+    const observer = useRef<IntersectionObserver | null>(null);
+    const lastCaseElementRef = useCallback((node: HTMLDivElement | null) => {
+        if (loading || loadingMore) return;
+        if (observer.current) observer.current.disconnect();
+        observer.current = new IntersectionObserver(entries => {
+            if (entries[0].isIntersecting && hasMore) {
+                // Load more
+                loadMore();
+            }
+        });
+        if (node) observer.current.observe(node);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [loading, loadingMore, hasMore]);
+
     const [selectedCase, setSelectedCase] = useState<TeamInchargeCase | null>(null);
+
+    const ITEM_PER_PAGE = 50;
 
     // --- Initial Load ---
     useEffect(() => {
@@ -52,6 +75,15 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
         }
     }, [isOpen, initialTeamId, initialTelecallerId]);
 
+    // Debounce Search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearchText(searchText);
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchText]);
+
+    // Load Teams
     useEffect(() => {
         if (isOpen && tenantId) {
             const loadTeams = async () => {
@@ -67,7 +99,7 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
         }
     }, [isOpen, tenantId]);
 
-    // --- Filter Telecallers ---
+    // Load Telecallers
     useEffect(() => {
         if (selectedTeamId) {
             const loadTelecallers = async () => {
@@ -86,69 +118,75 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
         }
     }, [selectedTeamId]);
 
-    // --- Fetch Cases (Batched) ---
+    // --- Reset Cases on Filter Change ---
     useEffect(() => {
         if (selectedTeamId) {
-            const fetchCases = async () => {
-                setLoading(true);
-                try {
-                    // Use the service's batched fetch
-                    const cases = await customerCaseService.getTeamCases(tenantId, selectedTeamId);
-                    setAllCases(cases);
-                    setSelectedCase(null); // Reset selection
-                } catch (error) {
-                    console.error("Failed to fetch cases", error);
-                } finally {
-                    setLoading(false);
-                }
-            };
-            fetchCases();
+            setCases([]);
+            setPage(0);
+            setHasMore(true);
+            setTotalCount(0);
+            setLoading(true);
+
+            fetchCases(0, true);
         } else {
-            setAllCases([]);
+            setCases([]);
         }
-    }, [selectedTeamId, tenantId]);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedTeamId, selectedTelecallerId, selectedCallResponse, debouncedSearchText]);
 
-    // --- Client-side Filtering ---
-    const filteredCases = useMemo(() => {
-        return allCases.filter(c => {
-            // 1. Telecaller Filter
-            if (selectedTelecallerId && c.telecaller_id !== selectedTelecallerId) return false;
+    const fetchCases = async (pageToLoad: number, isReset: boolean) => {
+        if (!selectedTeamId) return;
 
-            // 2. Status Filter
-            if (selectedStatus !== 'all') {
-                const s = selectedStatus.toLowerCase();
+        try {
+            if (!isReset) setLoadingMore(true);
 
-                // workflow statuses
-                if (['pending', 'in_progress', 'resolved', 'closed'].includes(s)) {
-                    if (c.case_status !== s) return false;
-                } else {
-                    // Call statuses (PTP, RNR, etc)
-                    // Check against latest_call_status
-                    if (!c.latest_call_status) return false;
-                    if (c.latest_call_status.toLowerCase() !== s) return false;
-                }
+            // Fetch explicitly
+            const result = await customerCaseService.getExplorerCases(
+                tenantId,
+                selectedTeamId,
+                {
+                    telecallerId: selectedTelecallerId || undefined,
+                    status: selectedCallResponse,
+                    search: debouncedSearchText
+                },
+                pageToLoad,
+                ITEM_PER_PAGE
+            );
+
+            if (isReset) {
+                setCases(result.cases);
+                setLoading(false);
+            } else {
+                setCases(prev => [...prev, ...result.cases]);
+                setLoadingMore(false);
             }
 
-            // 3. Search Filter
-            if (searchText) {
-                const lowerSearch = searchText.toLowerCase();
-                const matchesLoan = c.loan_id?.toLowerCase().includes(lowerSearch);
-                const matchesName = String(c.customer_name || c.case_data?.customer_name || '').toLowerCase().includes(lowerSearch);
-                const matchesMobile = String(c.mobile_no || c.case_data?.mobile_no || '').includes(searchText);
+            setTotalCount(result.count);
+            // If we got fewer items than requested, we've reached the end
+            setHasMore(result.cases.length === ITEM_PER_PAGE);
 
-                if (!matchesLoan && !matchesName && !matchesMobile) return false;
-            }
+        } catch (error) {
+            console.error("Failed to fetch cases", error);
+            setLoading(false);
+            setLoadingMore(false);
+        }
+    };
 
-            return true;
-        });
-    }, [allCases, selectedTelecallerId, selectedStatus, searchText]);
+    const loadMore = () => {
+        // Use functional state update to ensure correctness in callbacks if needed
+        // But here we rely on 'page' state
+        const nextPage = page + 1;
+        setPage(nextPage);
+        fetchCases(nextPage, false);
+    };
 
     // --- Export Excel ---
     const handleExport = () => {
-        if (filteredCases.length === 0) return;
+        if (cases.length === 0) return;
 
-        // Map filtered cases to export format
-        const exportData = filteredCases.map(c => ({
+        // Note: This exports only LOADED cases. 
+        // For full export we might need a separate service call.
+        const exportData = cases.map(c => ({
             'Loan ID': c.loan_id || c.case_data?.loan_id || '',
             'Customer Name': c.customer_name || c.case_data?.customer_name || '',
             'Mobile': c.mobile_no || (c.case_data?.mobile_no as string) || '',
@@ -220,23 +258,17 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
                         </select>
                     </div>
 
-                    {/* Status Select */}
+                    {/* Call Response Select */}
                     <div>
-                        <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">Status</label>
+                        <label className="block text-xs font-semibold text-gray-700 mb-1 uppercase tracking-wider">Call Response</label>
                         <select
                             className="w-full text-sm border-gray-300 rounded-md shadow-sm focus:border-blue-500 focus:ring-blue-500"
-                            value={selectedStatus}
-                            onChange={(e) => setSelectedStatus(e.target.value)}
+                            value={selectedCallResponse}
+                            onChange={(e) => setSelectedCallResponse(e.target.value)}
                         >
-                            <option value="all">All Statuses</option>
-                            <option disabled>--- Workflow ---</option>
-                            <option value="pending">Pending</option>
-                            <option value="in_progress">In Progress</option>
-                            <option value="resolved">Resolved</option>
-                            <option value="closed">Closed</option>
-                            <option disabled>--- Call Response ---</option>
+                            <option value="all">All Responses</option>
                             <option value="PTP">PTP (Promised to Pay)</option>
-                            <option value="RNR">RNR (Ringing)</option>
+                            <option value="RNR">RNR (Ringing No Response)</option>
                             <option value="NC">NC (Not Connected)</option>
                             <option value="WN">WN (Wrong Number)</option>
                             <option value="cb">CB (Callback)</option>
@@ -265,7 +297,7 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
                     <div className="flex items-end">
                         <button
                             onClick={handleExport}
-                            disabled={filteredCases.length === 0}
+                            disabled={cases.length === 0}
                             className="w-full flex items-center justify-center gap-2 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                             <FileSpreadsheet className="w-4 h-4" />
@@ -280,8 +312,8 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
                     {/* Left: Case List */}
                     <div className="w-1/3 border-r border-gray-200 flex flex-col bg-white">
                         <div className="p-3 bg-gray-50 border-b border-gray-200 text-xs font-medium text-gray-500 flex justify-between">
-                            <span>Showing {filteredCases.length} cases</span>
-                            {selectedTeamId && !loading && <span>{allCases.length} total fetched</span>}
+                            <span>Showing {cases.length} loaded</span>
+                            {selectedTeamId && <span>{totalCount} total found (approx)</span>}
                         </div>
 
                         <div className="flex-1 overflow-y-auto">
@@ -294,33 +326,42 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
                                 <div className="p-8 text-center text-gray-400">
                                     Select a team to view cases
                                 </div>
-                            ) : filteredCases.length === 0 ? (
+                            ) : cases.length === 0 ? (
                                 <div className="p-8 text-center text-gray-400">
                                     No cases match current filters
                                 </div>
                             ) : (
                                 <div className="divide-y divide-gray-100">
-                                    {filteredCases.map(c => (
-                                        <div
-                                            key={c.id}
-                                            onClick={() => setSelectedCase(c)}
-                                            className={`p-4 cursor-pointer hover:bg-blue-50 transition-colors ${selectedCase?.id === c.id ? 'bg-blue-50 border-l-4 border-blue-500' : 'border-l-4 border-transparent'}`}
-                                        >
-                                            <div className="flex justify-between items-start mb-1">
-                                                <div className="font-bold text-gray-900 truncate pr-2">
-                                                    {c.customer_name || (c.case_data?.customer_name as string) || 'Unknown Name'}
+                                    {cases.map((c, index) => {
+                                        const isLast = index === cases.length - 1;
+                                        return (
+                                            <div
+                                                key={c.id}
+                                                ref={isLast ? lastCaseElementRef : null}
+                                                onClick={() => setSelectedCase(c)}
+                                                className={`p-4 cursor-pointer hover:bg-blue-50 transition-colors ${selectedCase?.id === c.id ? 'bg-blue-50 border-l-4 border-blue-500' : 'border-l-4 border-transparent'}`}
+                                            >
+                                                <div className="flex justify-between items-start mb-1">
+                                                    <div className="font-bold text-gray-900 truncate pr-2">
+                                                        {c.customer_name || (c.case_data?.customer_name as string) || 'Unknown Name'}
+                                                    </div>
+                                                    <FilterBadge status={c.latest_call_status || c.case_status} />
                                                 </div>
-                                                <FilterBadge status={c.latest_call_status || c.case_status} />
+                                                <div className="text-xs text-gray-500 font-mono mb-1">
+                                                    {c.loan_id || (c.case_data?.loan_id as string)}
+                                                </div>
+                                                <div className="flex items-center text-xs text-gray-500">
+                                                    <Phone className="w-3 h-3 mr-1" />
+                                                    {c.mobile_no || (c.case_data?.mobile_no as string) || 'N/A'}
+                                                </div>
                                             </div>
-                                            <div className="text-xs text-gray-500 font-mono mb-1">
-                                                {c.loan_id || (c.case_data?.loan_id as string)}
-                                            </div>
-                                            <div className="flex items-center text-xs text-gray-500">
-                                                <Phone className="w-3 h-3 mr-1" />
-                                                {c.mobile_no || (c.case_data?.mobile_no as string) || 'N/A'}
-                                            </div>
+                                        );
+                                    })}
+                                    {loadingMore && (
+                                        <div className="p-4 text-center text-gray-400 text-xs">
+                                            Loading more data...
                                         </div>
-                                    ))}
+                                    )}
                                 </div>
                             )}
                         </div>
@@ -347,7 +388,6 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
                                     <FilterBadge status={selectedCase.latest_call_status || selectedCase.case_status} size="lg" />
                                 </div>
 
-                                {/* Detail Grid */}
                                 {/* Detail Grid */}
                                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 

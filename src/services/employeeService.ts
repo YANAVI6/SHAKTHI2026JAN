@@ -47,9 +47,56 @@ export const employeeService = {
         updatedAt: new Date(emp.updated_at),
         createdBy: emp.created_by,
         teamId: emp.team_id,
+        dob: emp.dob,
+        gender: emp.gender,
+        address: emp.address,
+        city: emp.city,
+        state: emp.state,
+        email: emp.email,
+        avatarUrl: emp.avatar_url,
       }));
     } catch (error) {
       console.error('Error in getEmployees:', error);
+      throw error;
+    }
+  },
+
+  async getEmployeeById(employeeId: string): Promise<Employee | null> {
+    try {
+      const { data, error } = await supabase
+        .from(EMPLOYEE_TABLE)
+        .select('*')
+        .eq('id', employeeId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Error fetching employee:', error);
+        throw new Error(error.message);
+      }
+
+      if (!data) return null;
+
+      return {
+        id: data.id,
+        tenantId: data.tenant_id,
+        name: data.name,
+        mobile: data.mobile,
+        empId: data.emp_id,
+        role: data.role,
+        status: data.status,
+        createdAt: new Date(data.created_at),
+        updatedAt: new Date(data.updated_at),
+        createdBy: data.created_by,
+        teamId: data.team_id,
+        dob: data.dob,
+        gender: data.gender,
+        address: data.address,
+        city: data.city,
+        state: data.state,
+        email: data.email,
+      };
+    } catch (error) {
+      console.error('Error in getEmployeeById:', error);
       throw error;
     }
   },
@@ -112,6 +159,13 @@ export const employeeService = {
       if (updates.password !== undefined && updates.password.trim() !== '') {
         updateData.password_hash = await bcrypt.hash(updates.password, 10);
       }
+      if (updates.dob !== undefined) updateData.dob = updates.dob;
+      if (updates.gender !== undefined) updateData.gender = updates.gender;
+      if (updates.address !== undefined) updateData.address = updates.address;
+      if (updates.city !== undefined) updateData.city = updates.city;
+      if (updates.state !== undefined) updateData.state = updates.state;
+      if (updates.email !== undefined) updateData.email = updates.email;
+      if (updates.avatarUrl !== undefined) updateData.avatar_url = updates.avatarUrl;
 
       const { data, error } = await supabase
         .from(EMPLOYEE_TABLE)
@@ -136,6 +190,12 @@ export const employeeService = {
         createdAt: new Date(data.created_at),
         updatedAt: new Date(data.updated_at),
         createdBy: data.created_by,
+        dob: data.dob,
+        gender: data.gender,
+        address: data.address,
+        city: data.city,
+        state: data.state,
+        email: data.email,
       };
     } catch (error) {
       console.error('Error in updateEmployee:', error);

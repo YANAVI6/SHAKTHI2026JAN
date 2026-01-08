@@ -42,7 +42,13 @@ export interface AlertCase {
 }
 
 export const AlertService = {
-    async getAlerts(userId: string): Promise<{ status: 'RED' | 'YELLOW' | 'GREEN'; cases: AlertCase[] }> {
+    async getAlerts(userId: string, teamId?: string): Promise<{ status: 'RED' | 'YELLOW' | 'GREEN'; cases: AlertCase[] }> {
+        // If no teamId provided, return empty (strict filtering for telecallers)
+        if (!teamId) {
+            console.warn('⚠️ getAlerts called without teamId - returning empty');
+            return { status: 'GREEN', cases: [] };
+        }
+
         const now = new Date();
         const thirtyMinutesFromNow = new Date(now.getTime() + 30 * 60000);
         const startOfDay = new Date();
@@ -52,7 +58,7 @@ export const AlertService = {
 
         try {
             // 1. Fetch PTPs for today
-            const { data: ptps } = await supabase
+            let ptpsQuery = supabase
                 .from('case_call_logs')
                 .select(`
           id,
@@ -65,7 +71,8 @@ export const AlertService = {
             customer_name,
             loan_id,
             outstanding_amount,
-            case_data
+            case_data,
+            team_id
           )
         `)
                 .eq('employee_id', userId)
@@ -73,8 +80,14 @@ export const AlertService = {
                 .gte('ptp_datetime', startOfDay.toISOString())
                 .lte('ptp_datetime', endOfDay.toISOString());
 
+            if (teamId) {
+                ptpsQuery = ptpsQuery.eq('customer_cases.team_id', teamId);
+            }
+
+            const { data: ptps } = await ptpsQuery;
+
             // 2. Fetch Callbacks for today
-            const { data: callbacks } = await supabase
+            let callbacksQuery = supabase
                 .from('case_call_logs')
                 .select(`
           id,
@@ -87,7 +100,8 @@ export const AlertService = {
             customer_name,
             loan_id,
             outstanding_amount,
-            case_data
+            case_data,
+            team_id
           )
         `)
                 .eq('employee_id', userId)
@@ -95,6 +109,12 @@ export const AlertService = {
                 .eq('callback_completed', false)
                 .gte('callback_datetime', startOfDay.toISOString())
                 .lte('callback_datetime', endOfDay.toISOString());
+
+            if (teamId) {
+                callbacksQuery = callbacksQuery.eq('customer_cases.team_id', teamId);
+            }
+
+            const { data: callbacks } = await callbacksQuery;
 
             // 3. Fetch Viewed Logs for today
             const { data: viewedLogs } = await supabase

@@ -55,8 +55,8 @@ export const TeamMetricsReportModal: React.FC<TeamMetricsReportModalProps> = ({
                     .from('employees')
                     .select('id, name')
                     .eq('team_id', selectedTeamId)
-                    .eq('role', 'Telecaller')
-                    .eq('status', 'active');
+                    .ilike('role', 'telecaller')
+                    .ilike('status', 'active');
                 setTelecallers(data || []);
                 setSelectedTelecallerId(''); // Reset telecaller selection
             };

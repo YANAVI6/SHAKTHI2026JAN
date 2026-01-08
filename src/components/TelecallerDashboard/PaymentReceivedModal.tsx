@@ -15,6 +15,9 @@ interface PaymentReceivedModalProps {
     loan_amount?: string;
     loanAmount?: string;
     total_collected_amount?: number;
+    totalOutstanding?: string | number;
+    posAmount?: string | number;
+    case_data?: Record<string, unknown>;
   };
   onSubmit: (amount: number, notes: string) => Promise<void>;
 }
@@ -32,7 +35,28 @@ export const PaymentReceivedModal: React.FC<PaymentReceivedModalProps> = ({
 
   const customerName = caseData.customer_name || caseData.customerName || 'N/A';
   const loanId = caseData.loan_id || caseData.loanId || 'N/A';
-  const outstandingAmount = parseFloat(caseData.outstanding_amount || caseData.outstandingAmount || '0');
+
+  // Robustly extract outstanding amount from various possible field names
+  const extractAmount = (val: unknown): number => {
+    if (typeof val === 'number') return val;
+    if (typeof val === 'string') {
+      const cleaned = val.replace(/[^0-9.-]/g, '');
+      const parsed = parseFloat(cleaned);
+      return isNaN(parsed) ? 0 : parsed;
+    }
+    return 0;
+  };
+
+  const outstandingAmount = extractAmount(
+    caseData.outstanding_amount ||
+    caseData.outstandingAmount ||
+    caseData.totalOutstanding ||
+    caseData.posAmount ||
+    (caseData.case_data?.totalOutstanding as string | number) ||
+    (caseData.case_data?.posAmount as string | number) ||
+    '0'
+  );
+
   const totalCollected = caseData.total_collected_amount || 0;
 
   const handleSubmit = async (e: React.FormEvent) => {

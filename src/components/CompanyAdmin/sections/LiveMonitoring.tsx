@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Users, Phone, CheckCircle, Clock, Activity, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
-import { supabase } from '../../../lib/supabase';
+// import { supabase } from '../../../lib/supabase'; // Unused
 import { TeamService } from '../../../services/teamService';
 import { customerCaseService } from '../../../services/customerCaseService';
 
@@ -80,117 +80,33 @@ export const LiveMonitoring: React.FC = () => {
         try {
             setLoading(true);
 
-            const teams = await TeamService.getTeams(user.tenantId);
-            const userTeams = user.role === 'CompanyAdmin'
-                ? teams.filter(t => t.status === 'active')
-                : teams.filter(t => t.team_incharge_id === user.id && t.status === 'active');
+            let targetTeamIds: string[] = [];
 
-            const statsPromises = userTeams.map(async (team) => {
-                const teamCases = await customerCaseService.getTeamCases(user.tenantId!, team.id);
-                const telecallers = Array.isArray(team.telecallers) ? team.telecallers : [];
+            if (user.role === 'CompanyAdmin') {
+                const teams = await TeamService.getTeams(user.tenantId);
+                targetTeamIds = teams.filter(t => t.status === 'active').map(t => t.id);
+            } else if (user.teamId) {
+                targetTeamIds = [user.teamId];
+            } else {
+                // Fallback for TeamIncharge if teamId not on user object directly (check TeamService)
+                // But typically user.teamId is reliable. If not, fetch teams managed by user.
+                const teams = await TeamService.getTeams(user.tenantId);
+                targetTeamIds = teams
+                    .filter(t => t.team_incharge_id === user.id && t.status === 'active')
+                    .map(t => t.id);
+            }
 
-                interface Telecaller {
-                    id: string;
-                    name: string;
-                }
+            if (targetTeamIds.length === 0) {
+                setTeamStats([]);
+                setLoading(false);
+                return;
+            }
 
-                interface CallLog {
-                    case_id: string;
-                    call_status: string;
-                    created_at: string;
-                }
+            // Use the new optimized service method
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const stats: any[] = await customerCaseService.getLiveMonitoringStats(user.tenantId, targetTeamIds);
 
-                const telecallerStatsPromises = telecallers.map(async (telecaller: Telecaller) => {
-                    const telecallerCases = teamCases.filter(c => c.telecaller_id === telecaller.id);
-
-                    const today = new Date();
-                    today.setHours(0, 0, 0, 0);
-
-                    const { data: callLogs } = await supabase
-                        .from('case_call_logs')
-                        .select('*')
-                        .eq('employee_id', telecaller.id)
-                        .gte('created_at', today.toISOString())
-                        .order('created_at', { ascending: false });
-
-                    const { data: activityData } = await supabase
-                        .from('user_activity')
-                        .select('status, last_active_time')
-                        .eq('employee_id', telecaller.id)
-                        .eq('tenant_id', user.tenantId)
-                        .order('last_active_time', { ascending: false })
-                        .limit(1)
-                        .maybeSingle();
-
-                    const lastActive = activityData?.last_active_time
-                        ? new Date(activityData.last_active_time)
-                        : null;
-
-                    const minutesAgo = lastActive
-                        ? Math.floor((Date.now() - lastActive.getTime()) / 60000)
-                        : 999;
-
-                    const caseDetailsMap = new Map<string, CaseDetail>();
-
-                    (callLogs as CallLog[] | null)?.forEach((log) => {
-                        const caseData = telecallerCases.find(c => c.id === log.case_id);
-                        if (caseData) {
-                            const existing = caseDetailsMap.get(log.case_id);
-                            if (!existing) {
-                                caseDetailsMap.set(log.case_id, {
-                                    id: log.case_id,
-                                    loanId: caseData.loan_id || 'N/A',
-                                    customerName: caseData.customer_name || 'N/A',
-                                    mobileNo: caseData.mobile_no || 'N/A',
-                                    callStatus: log.call_status || 'N/A',
-                                    lastCallTime: new Date(log.created_at).toLocaleTimeString(),
-                                    callCount: 1,
-                                    caseStatus: caseData.case_status,
-                                    dpd: caseData.dpd,
-                                    pos: caseData.outstanding_amount ? parseFloat(caseData.outstanding_amount) : undefined,
-                                    emi: caseData.emi_amount ? parseFloat(caseData.emi_amount) : undefined,
-                                    priority: caseData.priority
-                                });
-                            } else {
-                                existing.callCount++;
-                            }
-                        }
-                    });
-
-                    const casesDetails = Array.from(caseDetailsMap.values());
-
-                    return {
-                        id: telecaller.id,
-                        name: telecaller.name,
-                        teamName: team.name,
-                        totalCases: telecallerCases.length,
-                        liveCases: casesDetails.length,
-                        completedToday: (callLogs as CallLog[] | null)?.filter((log) =>
-                            log.call_status === 'PTP' || log.call_status === 'PAID'
-                        ).length || 0,
-                        lastActivity: minutesAgo < 60
-                            ? `${minutesAgo}m ago`
-                            : minutesAgo < 1440
-                                ? `${Math.floor(minutesAgo / 60)}h ago`
-                                : 'Offline',
-                        status: activityData?.status || 'Offline',
-                        casesDetails
-                    };
-                });
-
-                const telecallerStats = await Promise.all(telecallerStatsPromises);
-
-                return {
-                    teamId: team.id,
-                    teamName: team.name,
-                    totalCases: teamCases.length,
-                    liveCases: telecallerStats.reduce((sum, t) => sum + t.liveCases, 0),
-                    telecallers: telecallerStats
-                };
-            });
-
-            const stats = await Promise.all(statsPromises);
-            setTeamStats(stats);
+            setTeamStats(stats as TeamStats[]);
             setLastUpdated(new Date());
         } catch (error) {
             console.error('Error loading live data:', error);

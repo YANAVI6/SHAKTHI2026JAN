@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Zap } from "lucide-react";
+import { Link } from "react-router-dom";
 import {
   Dialog,
   DialogContent,
@@ -10,7 +11,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-export default function Navbar() {
+interface NavbarProps {
+  onEnquiryClick?: () => void;
+}
+
+export default function Navbar({ onEnquiryClick }: NavbarProps) {
   const [clickCount, setClickCount] = useState(0);
   const [showLoginDialog, setShowLoginDialog] = useState(false);
   const [secretCode, setSecretCode] = useState("");
@@ -36,9 +41,9 @@ export default function Navbar() {
 
   const handleLoginSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (secretCode === "admin123") { // Simple secret code for demo
+    if (secretCode === "Sinchana@04102025") { // Updated secret code
       // Set access flag in session storage
-      sessionStorage.setItem('shakti_sa_access', 'true');
+      sessionStorage.setItem('shakthi_sa_access', 'true');
       // Use window.location.href for proper navigation
       window.location.href = "/superadmin-login";
       setShowLoginDialog(false);
@@ -56,7 +61,8 @@ export default function Navbar() {
         className="fixed top-0 left-0 right-0 z-50 bg-white/70 backdrop-blur-xl border-b border-white/20 shadow-sm supports-[backdrop-filter]:bg-white/60"
       >
         <div className="container mx-auto px-4 h-20 flex items-center justify-between">
-          <div
+          <Link
+            to="/"
             className="flex items-center gap-3 cursor-pointer select-none"
             onClick={handleLogoClick}
           >
@@ -67,18 +73,18 @@ export default function Navbar() {
               </div>
             </div>
             <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 to-blue-600">
-              Shakti
+              Shakthi
             </span>
-          </div>
+          </Link>
 
           <div className="hidden md:flex items-center gap-8 font-bold text-sm text-gray-500 uppercase tracking-widest">
             <a href="#features" className="hover:text-indigo-600 transition-colors">Features</a>
-            <a href="#comparison" className="hover:text-indigo-600 transition-colors">Why Shakti</a>
+            <a href="#comparison" className="hover:text-indigo-600 transition-colors">Why Shakthi</a>
             <a href="#testimonials" className="hover:text-indigo-600 transition-colors">Testimonials</a>
           </div>
 
           <div className="flex items-center gap-4">
-            <Button className="bg-gradient-to-r from-indigo-500 to-blue-600 hover:opacity-90 text-white font-bold shadow-lg shadow-indigo-200 transition-all hover:shadow-indigo-300 hover:-translate-y-0.5 rounded-xl px-6">
+            <Button onClick={onEnquiryClick} className="bg-gradient-to-r from-indigo-500 to-blue-600 hover:opacity-90 text-white font-bold shadow-lg shadow-indigo-200 transition-all hover:shadow-indigo-300 hover:-translate-y-0.5 rounded-xl px-6">
               Start Free – ₹10/Day
             </Button>
           </div>

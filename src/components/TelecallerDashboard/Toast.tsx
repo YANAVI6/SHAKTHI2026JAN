@@ -61,9 +61,9 @@ const Toast: React.FC<ToastProps> = ({
   return (
     <div
       className={`
-        w-full max-w-sm bg-white shadow-xl rounded-lg pointer-events-auto
+        w-full max-w-md bg-white shadow-xl rounded-lg pointer-events-auto
         ring-1 ring-black ring-opacity-5
-        slide-in-from-right-full fade-in
+        animate-in slide-in-from-right-full fade-in
         transition-all duration-300 ease-out
         ${getBorderColor()}
       `}

@@ -1,23 +1,21 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import ErrorBoundary from './components/shared/ErrorBoundary';
 import { ActivityMonitor } from './components/ActivityMonitor';
-
-// Layouts
 import SplashScreen from './components/SplashScreen';
-import LoginPage from './components/LoginPage';
-import SuperAdminLoginPage from './components/SuperAdminLoginPage';
 
-// Dashboards
-import SuperAdminDashboard from './components/SuperAdminDashboard';
-import { CompanyAdminDashboard } from './components/CompanyAdmin/CompanyAdminDashboard';
+// Lazy load Dashboards & Pages
+const LoginPage = lazy(() => import('./components/LoginPage'));
+const SuperAdminLoginPage = lazy(() => import('./components/SuperAdminLoginPage'));
+const SuperAdminDashboard = lazy(() => import('./components/SuperAdminDashboard'));
+const CompanyAdminDashboard = lazy(() => import('./components/CompanyAdmin/CompanyAdminDashboard').then(module => ({ default: module.CompanyAdminDashboard })));
+const DashboardOverview = lazy(() => import('./pages/dashboard/DashboardOverview'));
 
-import DashboardOverview from './pages/dashboard/DashboardOverview';
-
-// Pages
-import LandingPage from './pages/landing-page';
-import NotFound from './pages/errors/NotFound';
+// Lazy load Public Pages
+const LandingPage = lazy(() => import('./pages/LandingPage'));
+const PublicPage = lazy(() => import('./pages/PublicPage'));
+const NotFound = lazy(() => import('./pages/errors/NotFound'));
 
 // Providers
 import { AuthProvider, USER_STORAGE_KEY } from './contexts/AuthContext';
@@ -46,6 +44,8 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
+  const [isSplashComplete, setIsSplashComplete] = useState(false);
+
   // Initialize auth on mount
   useEffect(() => {
     const initializeAuth = async () => {
@@ -65,8 +65,8 @@ export default function App() {
     initializeAuth();
   }, []);
 
-  if (!isInitialized || isLoadingAuth) {
-    return <SplashScreen onComplete={() => { }} />;
+  if (!isInitialized || isLoadingAuth || !isSplashComplete) {
+    return <SplashScreen onComplete={() => setIsSplashComplete(true)} />;
   }
 
   return (
@@ -77,60 +77,68 @@ export default function App() {
           <ActivityMonitor>
             <NotificationProvider>
               <ConfirmationProvider>
-                <Routes>
-                  {/* Public Routes */}
-                  <Route path="/" element={<LandingPage />} />
-                  <Route path="/:tenantSlug" element={<LoginPage />} />
-                  <Route path="/tenant-login" element={<LoginPage />} />
-                  <Route path="/login" element={<Navigate to="/" replace />} />
-                  <Route path="/superadmin-login" element={<SuperAdminLoginPage />} />
+                <Suspense fallback={<SplashScreen onComplete={() => { }} />}>
+                  <Routes>
+                    {/* Public Routes */}
+                    <Route path="/" element={<LandingPage />} />
+                    <Route path="/contact" element={<PublicPage pageSlug="contact" />} />
+                    <Route path="/about" element={<PublicPage pageSlug="about" />} />
+                    <Route path="/security-vault" element={<PublicPage pageSlug="security-vault" />} />
+                    <Route path="/api-docs" element={<PublicPage pageSlug="api-docs" />} />
+                    <Route path="/privacy-policy" element={<PublicPage pageSlug="privacy-policy" />} />
+                    <Route path="/terms-conditions" element={<PublicPage pageSlug="terms-conditions" />} />
+                    <Route path="/:tenantSlug" element={<LoginPage />} />
+                    <Route path="/tenant-login" element={<LoginPage />} />
+                    <Route path="/login" element={<Navigate to="/" replace />} />
+                    <Route path="/superadmin-login" element={<SuperAdminLoginPage />} />
 
-                  {/* Super Admin Routes */}
-                  <Route
-                    path="/superadmin/*"
-                    element={
-                      <ProtectedRoute requiredRole="SuperAdmin">
-                        <Routes>
-                          <Route path="/" element={<ConnectedSuperAdminDashboard />} />
-                          <Route path="*" element={<Navigate to="/superadmin" replace />} />
-                        </Routes>
-                      </ProtectedRoute>
-                    }
-                  />
-
-                  {/* Company Admin Routes */}
-                  <Route
-                    path="/admin/*"
-                    element={
-                      <ProtectedRoute requiredRole="CompanyAdmin">
-                        <CelebrationProvider>
+                    {/* Super Admin Routes */}
+                    <Route
+                      path="/superadmin/*"
+                      element={
+                        <ProtectedRoute requiredRole="SuperAdmin">
                           <Routes>
-                            <Route path="/" element={<ConnectedCompanyAdminDashboard />} />
-                            <Route path="*" element={<Navigate to="/admin" replace />} />
+                            <Route path="/" element={<ConnectedSuperAdminDashboard />} />
+                            <Route path="*" element={<Navigate to="/superadmin" replace />} />
                           </Routes>
-                        </CelebrationProvider>
-                      </ProtectedRoute>
-                    }
-                  />
+                        </ProtectedRoute>
+                      }
+                    />
 
-                  {/* Employee/Telecaller Routes */}
-                  <Route
-                    path="/dashboard/*"
-                    element={
-                      <ProtectedRoute requiredRole={['Telecaller', 'TeamIncharge']}>
-                        <CelebrationProvider>
-                          <Routes>
-                            <Route path="/" element={<DashboardOverview />} />
-                            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-                          </Routes>
-                        </CelebrationProvider>
-                      </ProtectedRoute>
-                    }
-                  />
+                    {/* Company Admin Routes */}
+                    <Route
+                      path="/admin/*"
+                      element={
+                        <ProtectedRoute requiredRole="CompanyAdmin">
+                          <CelebrationProvider>
+                            <Routes>
+                              <Route path="/" element={<ConnectedCompanyAdminDashboard />} />
+                              <Route path="*" element={<Navigate to="/admin" replace />} />
+                            </Routes>
+                          </CelebrationProvider>
+                        </ProtectedRoute>
+                      }
+                    />
 
-                  {/* 404 Not Found */}
-                  <Route path="*" element={<NotFound />} />
-                </Routes>
+                    {/* Employee/Telecaller Routes */}
+                    <Route
+                      path="/dashboard/*"
+                      element={
+                        <ProtectedRoute requiredRole={['Telecaller', 'TeamIncharge']}>
+                          <CelebrationProvider>
+                            <Routes>
+                              <Route path="/" element={<DashboardOverview />} />
+                              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                            </Routes>
+                          </CelebrationProvider>
+                        </ProtectedRoute>
+                      }
+                    />
+
+                    {/* 404 Not Found */}
+                    <Route path="*" element={<NotFound />} />
+                  </Routes>
+                </Suspense>
               </ConfirmationProvider>
             </NotificationProvider>
           </ActivityMonitor>

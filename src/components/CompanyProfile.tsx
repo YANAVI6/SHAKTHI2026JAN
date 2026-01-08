@@ -23,28 +23,7 @@ import {
   SquarePen,
   AlertCircle
 } from 'lucide-react';
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  Title,
-  Tooltip,
-  Legend
-} from 'chart.js';
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  Title,
-  Tooltip,
-  Legend
-);
 
 interface Company {
   id: string;
@@ -135,7 +114,7 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
   };
 
   const validateForm = () => {
-    const errors: {[key: string]: string} = {};
+    const errors: { [key: string]: string } = {};
 
     if (!editFormData.companyName.trim()) {
       errors.companyName = 'Company name is required';
@@ -227,7 +206,7 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
   };
 
   const validateAdminForm = () => {
-    const errors: {[key: string]: string} = {};
+    const errors: { [key: string]: string } = {};
 
     if (!adminFormData.empId.trim()) {
       errors.empId = 'EMP ID is required';
@@ -345,7 +324,7 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
   };
 
   const validatePasswordReset = () => {
-    const errors: {[key: string]: string} = {};
+    const errors: { [key: string]: string } = {};
 
     if (!passwordResetData.newPassword.trim()) {
       errors.newPassword = 'New password is required';
@@ -404,7 +383,7 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
   };
 
   const validateManualPasswordUpdate = () => {
-    const errors: {[key: string]: string} = {};
+    const errors: { [key: string]: string } = {};
 
     if (!manualPasswordUpdateData.newPassword.trim()) {
       errors.newPassword = 'New password is required';
@@ -649,9 +628,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{admin.email}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{admin.phone}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
-                        admin.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                      }`}>
+                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${admin.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                        }`}>
                         {admin.status}
                       </span>
                     </td>
@@ -661,9 +639,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                         {/* Active/Inactive Toggle */}
                         <button
                           onClick={() => handleToggleAdminStatus(admin.id)}
-                          className={`p-1 rounded-full ${
-                            admin.status === 'Active' ? 'text-green-600 hover:text-green-900' : 'text-gray-400 hover:text-gray-600'
-                          }`}
+                          className={`p-1 rounded-full ${admin.status === 'Active' ? 'text-green-600 hover:text-green-900' : 'text-gray-400 hover:text-gray-600'
+                            }`}
                         >
                           {admin.status === 'Active' ?
                             <ToggleRight className="w-5 h-5" /> :
@@ -747,9 +724,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                         type="text"
                         value={editFormData.companyName}
                         onChange={(e) => handleInputChange('companyName', e.target.value)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.companyName ? 'border-red-500' : 'border-gray-300'
-                        }`}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.companyName ? 'border-red-500' : 'border-gray-300'
+                          }`}
                         placeholder="Enter company name"
                       />
                       {formErrors.companyName && (
@@ -766,9 +742,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                         type="text"
                         value={editFormData.proprietorName}
                         onChange={(e) => handleInputChange('proprietorName', e.target.value)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.proprietorName ? 'border-red-500' : 'border-gray-300'
-                        }`}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.proprietorName ? 'border-red-500' : 'border-gray-300'
+                          }`}
                         placeholder="Enter proprietor name"
                       />
                       {formErrors.proprietorName && (
@@ -791,9 +766,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                         type="tel"
                         value={editFormData.contactNumber}
                         onChange={(e) => handleInputChange('contactNumber', e.target.value)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.contactNumber ? 'border-red-500' : 'border-gray-300'
-                        }`}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.contactNumber ? 'border-red-500' : 'border-gray-300'
+                          }`}
                         placeholder="Enter contact number"
                       />
                       {formErrors.contactNumber && (
@@ -810,9 +784,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                         type="email"
                         value={editFormData.emailAddress}
                         onChange={(e) => handleInputChange('emailAddress', e.target.value)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.emailAddress ? 'border-red-500' : 'border-gray-300'
-                        }`}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.emailAddress ? 'border-red-500' : 'border-gray-300'
+                          }`}
                         placeholder="Enter email address"
                       />
                       {formErrors.emailAddress && (
@@ -849,9 +822,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                         type="text"
                         value={editFormData.gstNumber}
                         onChange={(e) => handleInputChange('gstNumber', e.target.value.toUpperCase())}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.gstNumber ? 'border-red-500' : 'border-gray-300'
-                        }`}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.gstNumber ? 'border-red-500' : 'border-gray-300'
+                          }`}
                         placeholder="XXAAAAA0000A1Z5"
                         maxLength={15}
                       />
@@ -869,9 +841,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                         type="text"
                         value={editFormData.panNumber}
                         onChange={(e) => handleInputChange('panNumber', e.target.value.toUpperCase())}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.panNumber ? 'border-red-500' : 'border-gray-300'
-                        }`}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.panNumber ? 'border-red-500' : 'border-gray-300'
+                          }`}
                         placeholder="AAAAA0000A"
                         maxLength={10}
                       />
@@ -895,9 +866,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                         value={editFormData.companyAddress}
                         onChange={(e) => handleInputChange('companyAddress', e.target.value)}
                         rows={3}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.companyAddress ? 'border-red-500' : 'border-gray-300'
-                        }`}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.companyAddress ? 'border-red-500' : 'border-gray-300'
+                          }`}
                         placeholder="Enter complete company address"
                       />
                       {formErrors.companyAddress && (
@@ -916,9 +886,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                           type="text"
                           value={editFormData.city}
                           onChange={(e) => handleInputChange('city', e.target.value)}
-                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            formErrors.city ? 'border-red-500' : 'border-gray-300'
-                          }`}
+                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.city ? 'border-red-500' : 'border-gray-300'
+                            }`}
                           placeholder="Enter city"
                         />
                         {formErrors.city && (
@@ -935,9 +904,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                           type="text"
                           value={editFormData.state}
                           onChange={(e) => handleInputChange('state', e.target.value)}
-                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            formErrors.state ? 'border-red-500' : 'border-gray-300'
-                          }`}
+                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.state ? 'border-red-500' : 'border-gray-300'
+                            }`}
                           placeholder="Enter state"
                         />
                         {formErrors.state && (
@@ -954,9 +922,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                           type="text"
                           value={editFormData.pinCode}
                           onChange={(e) => handleInputChange('pinCode', e.target.value)}
-                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                            formErrors.pinCode ? 'border-red-500' : 'border-gray-300'
-                          }`}
+                          className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.pinCode ? 'border-red-500' : 'border-gray-300'
+                            }`}
                           placeholder="123456"
                           maxLength={6}
                         />
@@ -981,9 +948,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                         type="date"
                         value={editFormData.registrationDate}
                         onChange={(e) => handleInputChange('registrationDate', e.target.value)}
-                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                          formErrors.registrationDate ? 'border-red-500' : 'border-gray-300'
-                        }`}
+                        className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${formErrors.registrationDate ? 'border-red-500' : 'border-gray-300'
+                          }`}
                       />
                       {formErrors.registrationDate && (
                         <p className="text-red-500 text-sm mt-1">{formErrors.registrationDate}</p>
@@ -1043,9 +1009,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     type="text"
                     value={adminFormData.empId}
                     onChange={(e) => handleAdminInputChange('empId', e.target.value.toUpperCase())}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      adminFormErrors.empId ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${adminFormErrors.empId ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="EMPXXX"
                     maxLength={10}
                   />
@@ -1063,9 +1028,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     type="text"
                     value={adminFormData.adminName}
                     onChange={(e) => handleAdminInputChange('adminName', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      adminFormErrors.adminName ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${adminFormErrors.adminName ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="Enter admin name"
                   />
                   {adminFormErrors.adminName && (
@@ -1082,9 +1046,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     type="email"
                     value={adminFormData.email}
                     onChange={(e) => handleAdminInputChange('email', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      adminFormErrors.email ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${adminFormErrors.email ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="admin@company.com"
                   />
                   {adminFormErrors.email && (
@@ -1115,9 +1078,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     type="password"
                     value={adminFormData.password}
                     onChange={(e) => handleAdminInputChange('password', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      adminFormErrors.password ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${adminFormErrors.password ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder={editingAdmin ? 'Leave blank to keep current password' : 'Enter password'}
                   />
                   {adminFormErrors.password && (
@@ -1134,9 +1096,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     type="password"
                     value={adminFormData.confirmPassword}
                     onChange={(e) => handleAdminInputChange('confirmPassword', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                      adminFormErrors.confirmPassword ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${adminFormErrors.confirmPassword ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="Confirm password"
                   />
                   {adminFormErrors.confirmPassword && (
@@ -1210,9 +1171,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     type="password"
                     value={passwordResetData.newPassword}
                     onChange={(e) => handlePasswordResetInputChange('newPassword', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${
-                      passwordResetErrors.newPassword ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${passwordResetErrors.newPassword ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="Enter new password"
                   />
                   {passwordResetErrors.newPassword && (
@@ -1229,9 +1189,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     type="password"
                     value={passwordResetData.confirmNewPassword}
                     onChange={(e) => handlePasswordResetInputChange('confirmNewPassword', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${
-                      passwordResetErrors.confirmNewPassword ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-orange-500 ${passwordResetErrors.confirmNewPassword ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="Confirm new password"
                   />
                   {passwordResetErrors.confirmNewPassword && (
@@ -1315,9 +1274,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     type="password"
                     value={manualPasswordUpdateData.newPassword}
                     onChange={(e) => handleManualPasswordUpdateInputChange('newPassword', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
-                      manualPasswordUpdateErrors.newPassword ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${manualPasswordUpdateErrors.newPassword ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="Enter new password"
                   />
                   {manualPasswordUpdateErrors.newPassword && (
@@ -1334,9 +1292,8 @@ const CompanyProfile: React.FC<CompanyProfileProps> = ({ company, onBack }) => {
                     type="password"
                     value={manualPasswordUpdateData.confirmNewPassword}
                     onChange={(e) => handleManualPasswordUpdateInputChange('confirmNewPassword', e.target.value)}
-                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${
-                      manualPasswordUpdateErrors.confirmNewPassword ? 'border-red-500' : 'border-gray-300'
-                    }`}
+                    className={`w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500 ${manualPasswordUpdateErrors.confirmNewPassword ? 'border-red-500' : 'border-gray-300'
+                      }`}
                     placeholder="Confirm new password"
                   />
                   {manualPasswordUpdateErrors.confirmNewPassword && (

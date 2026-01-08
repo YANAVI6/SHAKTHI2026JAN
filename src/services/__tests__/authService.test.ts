@@ -170,7 +170,8 @@ describe('authService', () => {
             expect(result).toEqual({
                 id: 'emp-123',
                 username: 'EMP001',
-                email: '9999999999',
+                email: undefined,
+                mobile: '9999999999',
                 name: 'Test Employee',
                 tenantId: 'tenant-1',
                 role: 'Telecaller',

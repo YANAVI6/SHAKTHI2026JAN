@@ -4,6 +4,7 @@ import { UserPlus, UserMinus, Users } from 'lucide-react';
 import { supabase } from '../../../lib/supabase';
 import { TeamWithDetails } from '../../../models';
 import { useProducts } from '../../../hooks/useProducts';
+import { useTeams } from '../../../hooks/useTeams';
 import { useNotification, notificationHelpers } from '../../shared/Notification';
 import { useAuth } from '../../../contexts/AuthContext';
 
@@ -29,6 +30,7 @@ export const EditTeamModal: React.FC<EditTeamModalProps> = ({
   const { user } = useAuth();
   const { showNotification } = useNotification();
   const { products } = useProducts();
+  const { updateTeam } = useTeams(user?.tenantId);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingTelecallers, setIsLoadingTelecallers] = useState(false);
   const [teamName, setTeamName] = useState('');
@@ -114,46 +116,22 @@ export const EditTeamModal: React.FC<EditTeamModalProps> = ({
     setIsLoading(true);
 
     try {
-      // Update team basic info
-      const { error: teamError } = await supabase
-        .from('teams')
-        .update({
-          name: teamName.trim(),
-          product_name: selectedProduct,
-          status: teamStatus,
-          updated_at: new Date().toISOString()
-        })
-        .eq('id', team.id)
-        .eq('tenant_id', user?.tenantId);
+      const success = await updateTeam(team.id, {
+        name: teamName.trim(),
+        product_name: selectedProduct,
+        status: teamStatus,
+        selectedTelecallers: selectedTelecallerIds,
+        team_incharge_id: team.team_incharge_id // Keep current in-charge
+      });
 
-      if (teamError) throw teamError;
-
-      // Update telecaller assignments
-      // First, remove all current assignments for this team
-      await supabase
-        .from('employees')
-        .update({ team_id: null })
-        .eq('team_id', team.id);
-
-      // Then assign new telecallers
-      if (selectedTelecallerIds.length > 0) {
-        const { error: assignError } = await supabase
-          .from('employees')
-          .update({ team_id: team.id })
-          .in('id', selectedTelecallerIds);
-
-        if (assignError) {
-          console.error('Error assigning telecallers:', assignError);
-          // Don't fail the whole operation if telecaller assignment fails
-        }
+      if (success) {
+        showNotification(notificationHelpers.success(
+          'Team Updated',
+          'Team updated successfully!'
+        ));
+        onTeamUpdated();
+        onClose();
       }
-
-      showNotification(notificationHelpers.success(
-        'Team Updated',
-        'Team updated successfully!'
-      ));
-      onTeamUpdated();
-      onClose();
     } catch (error) {
       console.error('Error updating team:', error);
       showNotification(notificationHelpers.error(

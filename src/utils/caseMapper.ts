@@ -44,9 +44,9 @@ export const mapServiceCaseToDashboardCase = (serviceCase: ServiceCustomerCase):
         loanType: sCase.loan_type || getValueFromDetails(['loanType', 'Loan Type']) || '',
         caseStatus: sCase.case_status || '',
         priority: sCase.priority || 'medium',
-        telecaller_id: sCase.telecaller_id,
-        telecallerId: sCase.telecaller_id, // For compatibility
-        team_id: sCase.team_id,
+        telecaller_id: sCase.telecaller_id || undefined,
+        telecallerId: sCase.telecaller_id || undefined, // For compatibility
+        team_id: sCase.team_id || undefined,
         teamName: sCase.team?.name || '',
         telecallerName: sCase.telecaller?.name || '',
         address: sCase.address || getValueFromDetails(['address', 'Address']) || '',

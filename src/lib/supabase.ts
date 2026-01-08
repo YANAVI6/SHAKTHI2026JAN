@@ -16,7 +16,25 @@ console.log('🗄️ Initializing real Supabase client');
 console.log('📍 URL:', supabaseUrl);
 console.log('🔑 Anon Key:', supabaseAnonKey.substring(0, 20) + '...');
 
-const supabase = createClient(supabaseUrl, supabaseAnonKey);
+let clientUrl = supabaseUrl;
+
+// If pointing to local Supabase, use the Vite proxy (localhost:3000) instead of direct IP (127.0.0.1)
+// This avoids CORS issues by routing requests through the Vite dev server
+if (supabaseUrl.includes('127.0.0.1') || supabaseUrl.includes('localhost:54321')) {
+  console.log('🔄 Routing Supabase requests through Vite proxy to resolve CORS');
+  // check if window is defined (browser env)
+  if (typeof window !== 'undefined') {
+    clientUrl = window.location.origin;
+  }
+}
+
+const supabase = createClient(clientUrl, supabaseAnonKey, {
+  realtime: {
+    params: {
+      eventsPerSecond: 10,
+    },
+  },
+});
 
 export { supabase };
 

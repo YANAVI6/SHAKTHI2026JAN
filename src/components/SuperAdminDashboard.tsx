@@ -12,7 +12,6 @@ import { useNotification, notificationHelpers } from './shared/Notification';
 import {
   Home,
   Building2,
-  Settings,
   DollarSign,
   AlertCircle,
   CheckCircle,
@@ -23,7 +22,6 @@ import {
   Edit,
   Trash2,
   Eye,
-  Download,
   Save,
   X,
   User as UserIcon,
@@ -32,31 +30,26 @@ import {
   XCircle,
   Loader2,
   Copy,
-  ExternalLink
+  ExternalLink,
+  MessageSquare,
+  Globe
 } from 'lucide-react';
+import { EnquiryManagement } from './sections/EnquiryManagement';
+import { TestimonialManagement } from './sections/TestimonialManagement';
+import { SocialMediaManagement } from './sections/SocialMediaManagement';
+import { PageDocManagement } from './sections/PageDocManagement';
 import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  Title,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
   Tooltip,
-  Legend
-} from 'chart.js';
-import { Bar, Line } from 'react-chartjs-2';
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  LineElement,
-  PointElement,
-  Title,
-  Tooltip,
-  Legend
-);
+  Legend,
+  ResponsiveContainer
+} from 'recharts';
 
 // Reusable Components
 const KPICard: React.FC<{ icon: React.ReactNode; title: string; value: string | number; color: string }> = ({ icon, title, value, color }) => (
@@ -135,54 +128,7 @@ const SYSTEM_STATUSES = [
   { label: 'Backup Status', status: 'Up to date', icon: <CheckCircle className="w-4 h-4 text-green-500 mr-2" /> }
 ];
 
-const TREND_DATA = {
-  labels: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'],
-  datasets: [{
-    label: 'Collections Trend',
-    data: [1200000, 1500000, 1900000, 2200000, 2800000, 3200000],
-    borderColor: 'rgb(75, 192, 192)',
-    backgroundColor: 'rgba(75, 192, 192, 0.2)',
-    tension: 0.1
-  }]
-};
-
-const BAR_CHART_OPTIONS = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: { position: 'top' as const },
-    title: { display: false }
-  },
-  scales: {
-    y: {
-      beginAtZero: true,
-      ticks: {
-        callback: function (tickValue: string | number) {
-          return typeof tickValue === 'number' ? tickValue.toLocaleString() : tickValue;
-        }
-      }
-    }
-  }
-};
-
-const LINE_CHART_OPTIONS = {
-  responsive: true,
-  maintainAspectRatio: false,
-  plugins: {
-    legend: { position: 'top' as const },
-    title: { display: false }
-  },
-  scales: {
-    y: {
-      beginAtZero: true,
-      ticks: {
-        callback: function (tickValue: string | number) {
-          return typeof tickValue === 'number' ? '₹' + (tickValue / 100000).toFixed(0) + 'L' : tickValue;
-        }
-      }
-    }
-  }
-};
+// Chart configurations removed as they are no longer used with Recharts
 
 const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogout }) => {
   const { showConfirmation } = useConfirmation();
@@ -611,32 +557,14 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
   const menuItems = [
     { name: 'Dashboard', icon: Home, active: activeSection === 'dashboard', onClick: () => setActiveSection('dashboard') },
     { name: 'Companies', icon: Building2, active: activeSection === 'companies', onClick: () => setActiveSection('companies') },
-    { name: 'Reports', icon: FileText, active: activeSection === 'reports', onClick: () => setActiveSection('reports') },
-    { name: 'VOIP/GSM', icon: Phone, active: activeSection === 'voip', onClick: () => setActiveSection('voip') },
-    { name: 'Settings', icon: Settings, active: activeSection === 'settings', onClick: () => setActiveSection('settings') },
+    { name: 'Enquiry', icon: MessageSquare, active: activeSection === 'enquiry', onClick: () => setActiveSection('enquiry') },
+    { name: 'Testimonials', icon: MessageSquare, active: activeSection === 'testimonials', onClick: () => setActiveSection('testimonials') },
+    { name: 'Social Media', icon: Globe, active: activeSection === 'social-media', onClick: () => setActiveSection('social-media') },
+    { name: 'Page Docs', icon: FileText, active: activeSection === 'page-docs', onClick: () => setActiveSection('page-docs') },
   ];
 
   // Dynamic chart data
-  const tenantCollectionsData = {
-    labels: tenants.map(t => t.name),
-    datasets: [{
-      label: 'Active Tenants',
-      data: tenants.map(t => t.maxUsers),
-      backgroundColor: [
-        'rgba(54, 162, 235, 0.8)',
-        'rgba(255, 99, 132, 0.8)',
-        'rgba(255, 205, 86, 0.8)',
-        'rgba(75, 192, 192, 0.8)'
-      ],
-      borderColor: [
-        'rgba(54, 162, 235, 1)',
-        'rgba(255, 99, 132, 1)',
-        'rgba(255, 205, 86, 1)',
-        'rgba(75, 192, 192, 1)'
-      ],
-      borderWidth: 1
-    }]
-  };
+  // Dynamic chart data removed - mapped directly in render
   const renderDashboard = () => (
     <div>
       {/* KPI Cards */}
@@ -672,14 +600,56 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Company-wise Collections</h3>
           <div style={{ height: '350px', width: '100%' }}>
-            <Bar data={tenantCollectionsData} options={BAR_CHART_OPTIONS} />
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={tenants.map((t, i) => ({
+                  name: t.name,
+                  users: t.maxUsers,
+                  fill: ['#3b82f6', '#ef4444', '#eab308', '#22c55e'][i % 4]
+                }))}
+                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="users" name="Active Users" fill="#3b82f6" />
+              </BarChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
         <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Collections Trend</h3>
           <div style={{ height: '350px', width: '100%' }}>
-            <Line data={TREND_DATA} options={LINE_CHART_OPTIONS} />
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart
+                data={[
+                  { month: 'Jan', amount: 1200000 },
+                  { month: 'Feb', amount: 1500000 },
+                  { month: 'Mar', amount: 1900000 },
+                  { month: 'Apr', amount: 2200000 },
+                  { month: 'May', amount: 2800000 },
+                  { month: 'Jun', amount: 3200000 },
+                ]}
+                margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="month" />
+                <YAxis tickFormatter={(value) => `₹${(value / 100000).toFixed(0)}L`} />
+                <Tooltip formatter={(value: number | undefined) => [`₹${Number(value || 0).toLocaleString()}`, 'Collections']} />
+                <Legend />
+                <Line
+                  type="monotone"
+                  dataKey="amount"
+                  name="Collections Trend"
+                  stroke="#0ea5e9"
+                  strokeWidth={2}
+                  activeDot={{ r: 8 }}
+                />
+              </LineChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
@@ -869,191 +839,20 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
   };
 
 
-  const renderReports = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Generate Reports</h3>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <button className="bg-red-500 hover:bg-red-600 text-white p-4 rounded-lg flex items-center justify-center">
-            <Download className="w-5 h-5 mr-2" />
-            Export PDF
-          </button>
-          <button className="bg-green-500 hover:bg-green-600 text-white p-4 rounded-lg flex items-center justify-center">
-            <Download className="w-5 h-5 mr-2" />
-            Export Excel
-          </button>
-          <button className="bg-blue-500 hover:bg-blue-600 text-white p-4 rounded-lg flex items-center justify-center">
-            <Download className="w-5 h-5 mr-2" />
-            Export CSV
-          </button>
-        </div>
-      </div>
-    </div>
-  );
 
-  const renderVOIPGSM = () => (
-    <div className="space-y-6">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">VOIP/GSM Gateway Integration</h3>
 
-        {/* Gateway Status */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-            <div className="flex items-center">
-              <div className="bg-green-500 rounded-lg p-2 mr-3">
-                <Phone className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-green-800">VOIP Gateway</p>
-                <p className="text-lg font-bold text-green-900">Online</p>
-              </div>
-            </div>
-          </div>
 
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-            <div className="flex items-center">
-              <div className="bg-yellow-500 rounded-lg p-2 mr-3">
-                <Phone className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-yellow-800">GSM Gateway</p>
-                <p className="text-lg font-bold text-yellow-900">Maintenance</p>
-              </div>
-            </div>
-          </div>
 
-          <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-            <div className="flex items-center">
-              <div className="bg-blue-500 rounded-lg p-2 mr-3">
-                <Phone className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-blue-800">Active Calls</p>
-                <p className="text-lg font-bold text-blue-900">24</p>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        {/* Integration Plan */}
-        <div className="bg-gray-50 rounded-lg p-6">
-          <h4 className="text-md font-semibold text-gray-900 mb-4">🚀 VOIP/GSM Integration Roadmap</h4>
-
-          <div className="space-y-4">
-            <div className="border-l-4 border-blue-500 pl-4">
-              <h5 className="font-semibold text-gray-900">Phase 1: VOIP Integration (Weeks 1-2)</h5>
-              <ul className="text-sm text-gray-600 mt-2 space-y-1">
-                <li>• Integrate with Asterisk/FreePBX server</li>
-                <li>• Implement SIP protocol support</li>
-                <li>• Add WebRTC for browser-based calling</li>
-                <li>• Create call logging and recording system</li>
-              </ul>
-            </div>
-
-            <div className="border-l-4 border-green-500 pl-4">
-              <h5 className="font-semibold text-gray-900">Phase 2: GSM Gateway (Weeks 3-4)</h5>
-              <ul className="text-sm text-gray-600 mt-2 space-y-1">
-                <li>• Connect GSM gateways (Dinstar, Yeastar)</li>
-                <li>• Implement SMS functionality</li>
-                <li>• Add multi-SIM card support</li>
-                <li>• Create failover mechanisms</li>
-              </ul>
-            </div>
-
-            <div className="border-l-4 border-purple-500 pl-4">
-              <h5 className="font-semibold text-gray-900">Phase 3: Advanced Features (Weeks 5-6)</h5>
-              <ul className="text-sm text-gray-600 mt-2 space-y-1">
-                <li>• Auto-dialer with predictive dialing</li>
-                <li>• Call queue management</li>
-                <li>• Real-time analytics dashboard</li>
-                <li>• Integration with CRM workflow</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        {/* Technical Architecture */}
-        <div className="mt-6 bg-white border border-gray-200 rounded-lg p-6">
-          <h4 className="text-md font-semibold text-gray-900 mb-4">🏗️ Technical Architecture</h4>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h5 className="font-semibold text-gray-800 mb-2">VOIP Stack</h5>
-              <ul className="text-sm text-gray-600 space-y-1">
-                <li>• <strong>Server:</strong> Asterisk/FreePBX</li>
-                <li>• <strong>Protocol:</strong> SIP/RTP</li>
-                <li>• <strong>Web Integration:</strong> WebRTC</li>
-                <li>• <strong>API:</strong> Asterisk REST Interface (ARI)</li>
-                <li>• <strong>Database:</strong> PostgreSQL for CDR</li>
-              </ul>
-            </div>
-
-            <div>
-              <h5 className="font-semibold text-gray-800 mb-2">GSM Integration</h5>
-              <ul className="text-sm text-gray-600 space-y-1">
-                <li>• <strong>Hardware:</strong> Dinstar GSM Gateway</li>
-                <li>• <strong>Protocol:</strong> SIP Trunk</li>
-                <li>• <strong>SMS:</strong> SMPP/HTTP API</li>
-                <li>• <strong>Management:</strong> SNMP monitoring</li>
-                <li>• <strong>Redundancy:</strong> Multiple SIM slots</li>
-              </ul>
-            </div>
-          </div>
-        </div>
-
-        {/* Cost Estimation */}
-        <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-6">
-          <h4 className="text-md font-semibold text-blue-900 mb-4">💰 Implementation Cost Estimate</h4>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <h5 className="font-semibold text-blue-800 mb-2">Hardware Costs</h5>
-              <ul className="text-sm text-blue-700 space-y-1">
-                <li>• Asterisk Server: $2,000 - $5,000</li>
-                <li>• GSM Gateway (8-port): $1,500 - $3,000</li>
-                <li>• Network Equipment: $500 - $1,000</li>
-                <li>• <strong>Total Hardware: $4,000 - $9,000</strong></li>
-              </ul>
-            </div>
-
-            <div>
-              <h5 className="font-semibold text-blue-800 mb-2">Development Costs</h5>
-              <ul className="text-sm text-blue-700 space-y-1">
-                <li>• VOIP Integration: 80-120 hours</li>
-                <li>• GSM Integration: 60-80 hours</li>
-                <li>• UI/UX Development: 40-60 hours</li>
-                <li>• <strong>Total Development: 180-260 hours</strong></li>
-              </ul>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
-  const renderSettings = () => (
-    <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-      <h3 className="text-lg font-semibold text-gray-900 mb-4">System Settings</h3>
-      <div className="space-y-6">
-        <div>
-          <h4 className="font-medium text-gray-900 mb-2">Roles & Permissions</h4>
-          <p className="text-sm text-gray-600">Configure user roles and their permissions</p>
-        </div>
-        <div>
-          <h4 className="font-medium text-gray-900 mb-2">System Configuration</h4>
-          <p className="text-sm text-gray-600">Manage system-wide settings and preferences</p>
-        </div>
-      </div>
-    </div>
-  );
 
   const renderContent = () => {
     switch (activeSection) {
       case 'dashboard': return renderDashboard();
       case 'companies': return renderCompanies();
-      case 'reports': return renderReports();
-      case 'voip': return renderVOIPGSM();
-      case 'settings': return renderSettings();
+      case 'enquiry': return <EnquiryManagement />;
+      case 'testimonials': return <TestimonialManagement />;
+      case 'social-media': return <SocialMediaManagement />;
+      case 'page-docs': return <PageDocManagement />;
       default: return renderDashboard();
     }
   };
@@ -1063,7 +862,7 @@ const SuperAdminDashboard: React.FC<SuperAdminDashboardProps> = ({ user, onLogou
       user={user}
       onLogout={onLogout}
       menuItems={menuItems}
-      title="Shakti - Super Admin"
+      title="Shakthi - Super Admin"
       roleColor="bg-red-500"
     >
       {renderContent()}

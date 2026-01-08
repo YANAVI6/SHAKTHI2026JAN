@@ -6,9 +6,9 @@ import {
   ArcElement,
   Title,
   Tooltip,
-  Legend,
-  TooltipItem
+  Legend
 } from 'chart.js';
+import type { TooltipItem } from 'chart.js';
 import {
   getDateRangeString,
   calculateProgress

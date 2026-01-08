@@ -321,16 +321,35 @@ export const AssignCasesView: React.FC = () => {
     if (caseIds.length === 0) return {};
 
     try {
-      const { data, error } = await supabase
-        .from('case_call_logs')
-        .select('case_id, call_status, created_at')
-        .in('case_id', caseIds)
-        .order('created_at', { ascending: false });
+      const chunkSize = 50;
+      const chunks = [];
+      for (let i = 0; i < caseIds.length; i += chunkSize) {
+        chunks.push(caseIds.slice(i, i + chunkSize));
+      }
 
-      if (error) throw error;
+      const results = await Promise.all(
+        chunks.map(async (chunk) => {
+          const { data, error } = await supabase
+            .from('case_call_logs')
+            .select('case_id, call_status, created_at')
+            .in('case_id', chunk)
+            .order('created_at', { ascending: false });
 
+          if (error) throw error;
+          return data || [];
+        })
+      );
+
+      const allLogs = results.flat();
       const latestStatuses: Record<string, string> = {};
-      data?.forEach(log => {
+
+      allLogs.forEach(log => {
+        // Since we order by created_at desc, the first one we see for a case is the latest
+        // But since we are concatenating chunks, we need to be careful if we didn't sort globally?
+        // Actually, for each chunk we get ordered results.
+        // But we might have logs for same case in different chunks? 
+        // No, caseIds are unique in the input array usually, but let's double check.
+        // Yes, allCases.map(c => c.id) should be unique cases.
         if (!latestStatuses[log.case_id]) {
           latestStatuses[log.case_id] = log.call_status;
         }

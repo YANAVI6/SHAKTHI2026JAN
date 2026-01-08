@@ -14,6 +14,7 @@ export interface User {
   empId?: string;
   teamId?: string;
   phone?: string;
+  avatarUrl?: string;
 }
 
 interface AuthContextType {
@@ -27,7 +28,7 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const USER_STORAGE_KEY = 'shakti_user_session';
+export const USER_STORAGE_KEY = 'shakthi_user_session';
 
 export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | null }> = ({ children, initialUser }) => {
   const [user, setUser] = useState<User | null>(initialUser || null);
@@ -70,7 +71,10 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
     };
   }, []);
 
-  const logout = React.useCallback(async (reason?: string) => {
+  const logout = React.useCallback(async (reason?: string | unknown) => {
+    // Sanitize reason: ensure it's a string, otherwise default to undefined
+    const validReason = typeof reason === 'string' ? reason : undefined;
+
     if (user?.id) {
       console.log('👋 Logout initiated for user:', user.id, 'Role:', user.role);
       // Log security audit
@@ -84,9 +88,9 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
       try {
         const role = user.role?.toLowerCase() || '';
         // Only track activity for Telecallers and Team Incharges (case-insensitive check)
-        if (role === 'telecaller' || role === 'teamincharge' || role === 'team incharge') {
+        if (role === 'telecaller' || role === 'teamincharge' || role === 'team incharge' || role === 'companyadmin') {
           console.log('📝 Tracking logout for role:', user.role);
-          await activityService.trackLogout(user.id, reason);
+          await activityService.trackLogout(user.id, validReason);
         } else {
           console.log('ℹ️ Skipping activity tracking for role:', user.role);
         }
@@ -105,9 +109,9 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
   useEffect(() => {
     if (!user?.id || !user?.tenantId) return;
 
-    // Only track activity for Telecallers and Team Incharges (who are in employees table)
-    // Company Admins are in a separate table and don't need activity tracking
-    if (user.role !== 'Telecaller' && user.role !== 'TeamIncharge') {
+    // Only track activity for Telecallers, Team Incharges, and Company Admins (who are in employees table)
+    const role = user.role?.toLowerCase() || '';
+    if (role !== 'telecaller' && role !== 'teamincharge' && role !== 'team incharge' && role !== 'companyadmin') {
       return;
     }
 
@@ -139,8 +143,9 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
   useEffect(() => {
     if (!user?.id) return;
 
-    // Only track for Telecallers and Team Incharges
-    if (user.role !== 'Telecaller' && user.role !== 'TeamIncharge') {
+    // Only track for Telecallers, Team Incharges, and Company Admins
+    const role = user.role?.toLowerCase() || '';
+    if (role !== 'telecaller' && role !== 'teamincharge' && role !== 'team incharge' && role !== 'companyadmin') {
       return;
     }
 
@@ -275,8 +280,10 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
           role: actualRole, // Use actual role from database only
           tenantId: authenticatedUser.tenantId,
           email: authenticatedUser.email,
+          phone: authenticatedUser.mobile,
           empId: authenticatedUser.username,
-          teamId: authenticatedUser.teamId
+          teamId: authenticatedUser.teamId,
+          avatarUrl: authenticatedUser.avatarUrl
         };
 
         // Set tenant context for RLS policies

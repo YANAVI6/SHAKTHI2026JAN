@@ -11,11 +11,12 @@ import {
     Trash2
 } from 'lucide-react';
 import { NotificationService, DashboardNotification } from '../../services/notificationService';
+import { AlertCase } from '../../services/alertService';
 
 interface TelecallerNotificationViewProps {
     notifications: DashboardNotification[];
     setNotifications: React.Dispatch<React.SetStateAction<DashboardNotification[]>>;
-    onOpenAlerts: () => void;
+    onOpenAlerts: (alerts?: AlertCase[]) => void;
 }
 
 export const TelecallerNotificationView: React.FC<TelecallerNotificationViewProps> = ({
@@ -26,10 +27,10 @@ export const TelecallerNotificationView: React.FC<TelecallerNotificationViewProp
     const [notificationFilter, setNotificationFilter] = useState('All');
 
     const handleMarkAllAsRead = () => {
-        // In a real app, we'd call an API. For now, we'll update local state
-        // and potentially store "read" IDs in localStorage if needed.
-        // Since getNotifications calculates isRead dynamically for some types,
-        // we might just want to visually mark them as read in the UI for this session.
+        // Mark all notifications as dismissed/read using the service
+        const notificationIds = notifications.map(n => n.id);
+        NotificationService.markAllAsRead(notificationIds);
+        // Update local state to reflect the change immediately
         const updated = notifications.map(n => ({ ...n, isRead: true }));
         setNotifications(updated);
     };

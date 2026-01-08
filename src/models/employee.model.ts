@@ -10,6 +10,12 @@ export interface Employee {
   created_at: string;
   updated_at: string;
   created_by: string | null;
+  dob?: string;
+  gender?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  email?: string;
 }
 
 export interface EmployeeInsert {
@@ -21,6 +27,12 @@ export interface EmployeeInsert {
   role: 'TeamIncharge' | 'Telecaller';
   status?: 'active' | 'inactive';
   created_by?: string;
+  dob?: string;
+  gender?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  email?: string;
 }
 
 export interface EmployeeUpdate {
@@ -30,6 +42,12 @@ export interface EmployeeUpdate {
   password_hash?: string;
   role?: 'TeamIncharge' | 'Telecaller';
   status?: 'active' | 'inactive';
+  dob?: string;
+  gender?: string;
+  address?: string;
+  city?: string;
+  state?: string;
+  email?: string;
 }
 
 export interface EmployeeWithDetails extends Employee {

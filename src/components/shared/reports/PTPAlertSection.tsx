@@ -10,9 +10,10 @@ interface PTPAlertSectionProps {
         tenantId?: string;
     };
     onCaseClick?: (caseItem: TeamInchargeCase) => void;
+    teamId?: string;
 }
 
-export const PTPAlertSection: React.FC<PTPAlertSectionProps> = ({ user, onCaseClick }) => {
+export const PTPAlertSection: React.FC<PTPAlertSectionProps> = ({ user, onCaseClick, teamId }) => {
     const [cases, setCases] = useState<TeamInchargeCase[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
@@ -22,7 +23,7 @@ export const PTPAlertSection: React.FC<PTPAlertSectionProps> = ({ user, onCaseCl
             setIsLoading(true);
             try {
                 const employeeId = user.role === 'Telecaller' ? user.id : undefined;
-                const data = await customerCaseService.getTodayPTPCases(user.tenantId, employeeId);
+                const data = await customerCaseService.getTodayPTPCases(user.tenantId, employeeId, teamId);
                 setCases(data);
             } catch (error) {
                 console.error('Error loading PTP cases:', error);
@@ -32,7 +33,7 @@ export const PTPAlertSection: React.FC<PTPAlertSectionProps> = ({ user, onCaseCl
         };
 
         loadPTPCases();
-    }, [user.tenantId, user.role, user.id]);
+    }, [user.tenantId, user.role, user.id, teamId]);
 
     if (isLoading) {
         return <div className="p-8 text-center text-gray-500">Loading PTP Alerts...</div>;

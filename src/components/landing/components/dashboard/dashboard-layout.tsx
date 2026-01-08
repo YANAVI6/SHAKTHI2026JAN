@@ -29,7 +29,7 @@ const SidebarContent = () => {
     <div className="flex flex-col h-full bg-white border-r border-gray-100">
       <div className="p-6 flex items-center gap-3">
         <div className="w-8 h-8 rounded-lg bg-brand-purple flex items-center justify-center text-white font-bold text-xl shadow-lg shadow-brand-purple/20">S</div>
-        <span className="text-2xl font-display font-bold text-gray-900">Shakti</span>
+        <span className="text-2xl font-display font-bold text-gray-900">Shakthi</span>
       </div>
 
       <div className="px-4 py-2">

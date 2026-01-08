@@ -8,28 +8,28 @@ export interface PageConfig {
 
 export const PAGE_CONFIGS: Record<string, PageConfig> = {
   login: {
-    title: 'Login - Shakti CRM',
-    description: 'Login to Shakti Customer Relationship Management System. Access your dashboard based on your role.',
+    title: 'Login - Shakthi CRM',
+    description: 'Login to Shakthi Customer Relationship Management System. Access your dashboard based on your role.',
     keywords: 'login, crm, customer management, authentication'
   },
   superadmin: {
-    title: 'Super Admin Dashboard - Shakti CRM',
-    description: 'Super Administrator dashboard for managing tenants, companies, and system-wide settings in Shakti CRM.',
+    title: 'Super Admin Dashboard - Shakthi CRM',
+    description: 'Super Administrator dashboard for managing tenants, companies, and system-wide settings in Shakthi CRM.',
     keywords: 'super admin, dashboard, tenant management, system administration, crm'
   },
   companyadmin: {
-    title: 'Company Admin Dashboard - Shakti CRM',
-    description: 'Company Administrator dashboard for managing employees, customers, and business operations in Shakti CRM.',
+    title: 'Company Admin Dashboard - Shakthi CRM',
+    description: 'Company Administrator dashboard for managing employees, customers, and business operations in Shakthi CRM.',
     keywords: 'company admin, dashboard, employee management, customer management, crm'
   },
   teamincharge: {
-    title: 'Team Incharge Dashboard - Shakti CRM',
-    description: 'Team Incharge dashboard for supervising telecallers and managing customer cases in Shakti CRM.',
+    title: 'Team Incharge Dashboard - Shakthi CRM',
+    description: 'Team Incharge dashboard for supervising telecallers and managing customer cases in Shakthi CRM.',
     keywords: 'team incharge, dashboard, team management, customer cases, crm'
   },
   telecaller: {
-    title: 'Telecaller Dashboard - Shakti CRM',
-    description: 'Telecaller dashboard for managing customer calls, cases, and follow-ups in Shakti CRM.',
+    title: 'Telecaller Dashboard - Shakthi CRM',
+    description: 'Telecaller dashboard for managing customer calls, cases, and follow-ups in Shakthi CRM.',
     keywords: 'telecaller, dashboard, customer calls, case management, crm'
   }
 };
@@ -61,7 +61,7 @@ export const usePageConfig = (pageKey: string, customTitle?: string) => {
 
     // Cleanup function to reset title when component unmounts
     return () => {
-      document.title = 'Shakti CRM';
+      document.title = 'Shakthi CRM';
     };
   }, [pageKey, customTitle]);
 };
