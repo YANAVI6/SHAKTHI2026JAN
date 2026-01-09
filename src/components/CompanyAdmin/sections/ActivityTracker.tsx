@@ -142,6 +142,7 @@ export const ActivityTracker: React.FC = () => {
         };
     }, [fetchActivityData, hasMore, loading, isLoadMore]);
 
+    // 3. Real-time activity listener
     useEffect(() => {
         if (!user?.tenantId) return;
 
@@ -152,44 +153,39 @@ export const ActivityTracker: React.FC = () => {
                 {
                     event: '*',
                     schema: 'public',
-                    table: USER_ACTIVITY_TABLE,
-                    filter: `tenant_id=eq.${user.tenantId}`
+                    table: USER_ACTIVITY_TABLE
                 },
                 (payload) => {
-                    console.log('📡 Activity Tracker received update:', payload.eventType, payload);
+                    const newData = payload.new as Record<string, unknown>;
+                    const oldData = payload.old as Record<string, unknown>;
+                    const tenantId = newData?.tenant_id || oldData?.tenant_id;
+
+                    if (tenantId !== user.tenantId) return;
 
                     if (payload.eventType === 'INSERT') {
-                        console.log('➕ New activity record inserted, refreshing data');
                         refreshData();
                     } else if (payload.eventType === 'UPDATE') {
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const newData = payload.new as any;
-                        console.log('🔄 Activity record updated:', {
-                            employee_id: newData.employee_id,
-                            status: newData.status,
-                            current_break_start: newData.current_break_start,
-                            total_break_time: newData.total_break_time
-                        });
-
                         setActivityData(prevData =>
                             prevData.map(log => {
                                 if (log.id === newData.employee_id) {
-                                    console.log('✅ Updating activity log for employee:', log.employeeName);
+                                    // Calculate deltas for aggregate fields
+                                    const breakDelta = (Number(newData.total_break_time) || 0) - (Number(oldData?.total_break_time) || 0);
+                                    const idleDelta = (Number(newData.total_idle_time) || 0) - (Number(oldData?.total_idle_time) || 0);
+
                                     return {
                                         ...log,
                                         status: newData.status as 'Online' | 'Break' | 'Offline' | 'Idle',
-                                        rawLastActive: newData.last_active_time || log.rawLastActive,
-                                        todayTotalBreakMinutes: newData.total_break_time || 0,
-                                        currentBreakStart: newData.current_break_start || null,
-                                        rawLoginTime: newData.login_time || log.rawLoginTime,
-                                        totalIdleMinutes: newData.total_idle_time || 0
+                                        rawLastActive: (newData.last_active_time as string) || log.rawLastActive,
+                                        todayTotalBreakMinutes: (log.todayTotalBreakMinutes || 0) + breakDelta,
+                                        currentBreakStart: (newData.current_break_start as string) || null,
+                                        rawLoginTime: (newData.login_time as string) || log.rawLoginTime,
+                                        totalIdleMinutes: (log.totalIdleMinutes || 0) + idleDelta
                                     };
                                 }
                                 return log;
                             })
                         );
                     } else if (payload.eventType === 'DELETE') {
-                        console.log('➖ Activity record deleted, refreshing data');
                         refreshData();
                     }
                 }
@@ -200,6 +196,36 @@ export const ActivityTracker: React.FC = () => {
             supabase.removeChannel(channel);
         };
     }, [user?.tenantId, refreshData]);
+
+    // 4. Session Reaper Effect (Strict 5-minute enforcement)
+    useEffect(() => {
+        if (!user?.tenantId) return;
+
+        const reaperInterval = setInterval(async () => {
+            const now = new Date();
+            const staleLogs = activityDataRef.current.filter(log => {
+                if (log.status === 'Offline') return false;
+                const lastActive = log.rawLastActive ? new Date(log.rawLastActive) : new Date();
+                const diffMins = (now.getTime() - lastActive.getTime()) / 60000;
+                // Strict 5-minute timeout (3m Idle + 2m Buffer)
+                return diffMins >= 5;
+            });
+
+            if (staleLogs.length > 0) {
+                console.log(`🧹 Session Reaper: Found ${staleLogs.length} stale sessions. Cleaning up...`);
+                for (const stale of staleLogs) {
+                    try {
+                        console.log(`📡 Reaper logging out ${stale.employeeName} (Inactive for 5m+)`);
+                        await activityService.trackLogout(stale.id, 'Inactivity timeout (System)');
+                    } catch (err) {
+                        console.error(`❌ Reaper failed for ${stale.employeeName}:`, err);
+                    }
+                }
+            }
+        }, 30000); // Check every 30 seconds
+
+        return () => clearInterval(reaperInterval);
+    }, [user?.tenantId]);
 
     // Filter logic
     const filteredData = activityData.filter(log => {
@@ -254,52 +280,24 @@ export const ActivityTracker: React.FC = () => {
         let status = log.status;
         let totalIdleMinutes = log.totalIdleMinutes || 0;
 
-        if (status === 'Online' && inactiveMinutes > 3) {
+        // Strict "3+2" (5 min) logic
+        if (status !== 'Offline' && inactiveMinutes >= 5) {
+            status = 'Offline';
+        } else if (status === 'Online' && inactiveMinutes >= 3) {
             status = 'Idle';
         }
 
-        if (status === 'Idle' && inactiveMinutes > 0) {
+        if (status === 'Idle') {
             const additionalIdle = Math.max(0, inactiveMinutes - 3);
             totalIdleMinutes = log.totalIdleMinutes + additionalIdle;
+        } else if (status === 'Offline' && log.status !== 'Offline') {
+            // If they just became offline in UI, add the 2 minutes of idle time that led to it
+            totalIdleMinutes = log.totalIdleMinutes + 2;
         }
 
         // Productive Time Recalculation
-        // We need total logged in time for today to subtract break/idle.
-        // Since we don't have the raw "Total Logged In" number from service in the payload (we only have the string),
-        // we might be limited.
-        // However, we can parse the 'productiveTime' string to get base minutes, then adjust?
-        // Better: Let's rely on the service's heavy lifting for history, and just format the specific fields we changed.
-
-        // Actually, to fully implement "Total Logged-in - Idle - Break", we need "Total Logged-in". 
-        // The service calculates 'productiveMinutes' = TotalLoggedIn - Idle - Break.
-        // So if we update Idle or Break, we can adjust Productive.
-
-        // Let's parse base productive minutes from the string "Xh Ym"
-        const prodMatch = log.productiveTime.match(/(\d+)h\s*(\d+)m/) || log.productiveTime.match(/(\d+)m/);
-        // let baseProductiveMinutes = 0;
-        if (prodMatch) {
-            // if (prodMatch[2]) { // Xh Ym
-            //     baseProductiveMinutes = parseInt(prodMatch[1]) * 60 + parseInt(prodMatch[2]);
-            // } else { // Xm
-            //     baseProductiveMinutes = parseInt(prodMatch[1]);
-            // }
-        }
-
-        // Adjust:
-        // If status is Online, Productive Time increases every minute.
-        // If status is Break, Productive Time stays still (Total Logged In doesn't increase for inter-session breaks? 
-        // Wait, User Rules: "Total Logged In" includes "Login -> Logout". 
-        // So valid session time increases productive time.
-
-        // let currentProductiveMinutes = baseProductiveMinutes;
-
-        // If the user is currently Online and active (not idle), add elapsed time since fetch?
-        // This is getting complex to sync with server time.
-        // Determining "Elapsed since fetch" requires a timestamp of when data was fetched.
-        // Simplified approach: rely on the fact that we refresh data on status change, 
-        // and the "Time Ago" logic handles the display of "Last Active".
-        // The "Productive Time" might drag behind by a few minutes until refresh or if we don't simulate it.
-        // Let's stick to updating the status and idle/break counters which are most visible.
+        // Productive = Total Logged - Idle - Break
+        const currentProductiveMinutes = Math.max(0, log.totalLoggedInMinutes - totalIdleMinutes - totalBreakMinutes);
 
         // Format helpers
         const formatDuration = (mins: number) => {
@@ -316,17 +314,12 @@ export const ActivityTracker: React.FC = () => {
             return `${h}h ago`;
         };
 
-        // If we are simulating "Live" productive time, we need to know if we are in a productive state.
-        // A simple hack: If status is 'Online' (and not idle), the `productiveTime` returned by service 
-        // was calculated at `fetch` time. We can't easily increment it without `fetchTime`.
-        // We will accept that Productive Time updates on refresh/activity for now.
-
         return {
             ...log,
             status,
             lastActive: formatLastActive(inactiveMinutes),
             totalBreakTime: formatDuration(totalBreakMinutes),
-            // productiveTime: formatDuration(currentProductiveMinutes), // Keep server value to avoid drift
+            productiveTime: formatDuration(currentProductiveMinutes),
             idleTime: formatDuration(totalIdleMinutes)
         };
     });

@@ -11,6 +11,9 @@ import { ChatService } from '../../services/chatService';
 import { CreateChannelModal } from './modals/CreateChannelModal';
 import { DirectMessageModal } from './modals/DirectMessageModal';
 
+import { useNotification, notificationHelpers } from '../shared/Notification';
+import { ConfirmationModal } from '../shared/ConfirmationModal';
+
 interface ChatPanelProps {
     onClose: () => void;
 }
@@ -18,36 +21,36 @@ interface ChatPanelProps {
 export const ChatPanel: React.FC<ChatPanelProps> = ({ onClose }) => {
     const { user } = useAuth();
     const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
-    const { channels, isLoading: channelsLoading, unreadCounts, markAsRead } = useChannels(user?.id || '');
+    const { channels, isLoading: channelsLoading, unreadCounts, markAsRead } = useChannels(user?.id || '', user?.tenantId || '', selectedChannelId);
     const { messages, sendMessage, isLoading: messagesLoading } = useChat(
         selectedChannelId,
         user?.id || ''
     );
+    const { showNotification } = useNotification();
 
     const [activeTab, setActiveTab] = useState<'chats' | 'people'>('chats');
     const [isCreateChannelOpen, setIsCreateChannelOpen] = useState(false);
     const [isDMOpen, setIsDMOpen] = useState(false);
+
     const [isJoiningChat, setIsJoiningChat] = useState(false);
+    const [channelToDelete, setChannelToDelete] = useState<string | null>(null);
 
-    // Initial load - mark selected channel as read
-    React.useEffect(() => {
-        if (selectedChannelId) {
-            markAsRead(selectedChannelId);
-        }
-    }, [selectedChannelId, markAsRead]);
 
-    // Update user status to online when panel is open
+
+
+    // Mark as read when new messages arrive in the active channel
     React.useEffect(() => {
-        if (user?.id && user?.tenantId) {
-            ChatService.updateUserStatus(user.id, user.tenantId, 'online');
+        if (selectedChannelId && messages.length > 0) {
+            // Use the timestamp of the latest message to avoid clock drift issues
+            const latestMessage = messages[messages.length - 1];
+            markAsRead(selectedChannelId, latestMessage.created_at);
         }
-    }, [user?.id, user?.tenantId]);
+    }, [messages, selectedChannelId, markAsRead]);
 
     const selectedChannel = channels.find((ch) => ch.id === selectedChannelId);
 
     const handleChannelSelect = (channelId: string) => {
         setSelectedChannelId(channelId);
-        markAsRead(channelId);
     };
 
     const handleUserSelect = async (targetUserId: string) => {
@@ -71,6 +74,28 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ onClose }) => {
     const handleSendMessage = async (text: string) => {
         if (!user?.tenantId) return;
         await sendMessage(text, user.tenantId);
+    };
+
+    const handleDeleteChannel = (channelId: string) => {
+        setChannelToDelete(channelId);
+    };
+
+    const confirmDeleteChannel = async () => {
+        if (!channelToDelete) return;
+
+        try {
+            await ChatService.deleteChannel(channelToDelete);
+            showNotification(notificationHelpers.success('Channel Deleted', 'Channel has been removed successfully.'));
+
+            if (selectedChannelId === channelToDelete) {
+                setSelectedChannelId(null);
+            }
+        } catch (error) {
+            console.error('Error deleting channel:', error);
+            showNotification(notificationHelpers.error('Delete Failed', 'Could not delete the channel. Please try again.'));
+        } finally {
+            setChannelToDelete(null);
+        }
     };
 
     return (
@@ -144,6 +169,7 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ onClose }) => {
                                         channels={channels}
                                         selectedChannelId={selectedChannelId}
                                         onSelectChannel={handleChannelSelect}
+                                        onDeleteChannel={handleDeleteChannel}
                                         isLoading={channelsLoading}
                                         unreadCounts={unreadCounts}
                                     />
@@ -238,6 +264,17 @@ export const ChatPanel: React.FC<ChatPanelProps> = ({ onClose }) => {
                 tenantId={user?.tenantId || ''}
                 currentUserId={user?.id || ''}
                 onChannelSelected={(id) => setSelectedChannelId(id)}
+            />
+
+
+            <ConfirmationModal
+                isOpen={!!channelToDelete}
+                onClose={() => setChannelToDelete(null)}
+                onConfirm={confirmDeleteChannel}
+                title="Delete Channel"
+                message="Are you sure you want to delete this channel? This action cannot be undone and all message history will be lost."
+                type="danger"
+                confirmText="Delete Channel"
             />
         </div>
     );

@@ -2,7 +2,9 @@ import { supabase } from '../lib/supabase';
 import {
   CUSTOMER_CASE_TABLE,
   EMPLOYEE_TABLE,
-  CASE_CALL_LOG_TABLE
+  CASE_CALL_LOG_TABLE,
+  CALL_STATUSES,
+  type CallStatus
 } from '../models';
 import type {
   TeamInchargeCase,
@@ -52,6 +54,7 @@ export interface CustomerCase {
   latest_call_status?: string;
   latest_ptp_date?: string;
   buckets?: string;
+  is_retained?: boolean;
 }
 
 export interface CallLog {
@@ -1093,8 +1096,8 @@ export const customerCaseService = {
       });
 
       // 3. Get Total Case Counts (Paginated to bypass limit)
-      // We only need count per telecaller.
-      let allAssignedCases: { telecaller_id: string | null }[] = [];
+      // We only need count per (telecaller, team).
+      let allAssignedCases: { telecaller_id: string | null, team_id: string | null }[] = [];
       let page = 0;
       const pageSize = 1000;
       let hasMore = true;
@@ -1104,7 +1107,7 @@ export const customerCaseService = {
       while (hasMore && loopCount < 50) { // Limit to 50 pages (50k cases) for safety
         const { data: batch } = await supabase
           .from(CUSTOMER_CASE_TABLE)
-          .select('telecaller_id')
+          .select('telecaller_id, team_id')
           .eq('tenant_id', tenantId)
           .in('telecaller_id', allTelecallerIds)
           .neq('case_status', 'deleted')
@@ -1122,8 +1125,9 @@ export const customerCaseService = {
 
       const caseCounts = new Map<string, number>();
       allAssignedCases.forEach(c => {
-        if (c.telecaller_id) {
-          caseCounts.set(c.telecaller_id, (caseCounts.get(c.telecaller_id) || 0) + 1);
+        if (c.telecaller_id && c.team_id) {
+          const key = `${c.telecaller_id}_${c.team_id}`;
+          caseCounts.set(key, (caseCounts.get(key) || 0) + 1);
         }
       });
 
@@ -1133,12 +1137,16 @@ export const customerCaseService = {
 
       const { data: callLogs } = await supabase
         .from('case_call_logs')
-        .select('case_id, employee_id, call_status, created_at')
+        .select('case_id, employee_id, call_status, created_at, customer_cases!inner(team_id)')
         .in('employee_id', allTelecallerIds)
         .gte('created_at', today.toISOString())
         .order('created_at', { ascending: false });
 
-      const logs = callLogs || [];
+      const logs = (callLogs || []).map(l => ({
+        ...l,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        team_id: (l.customer_cases as any)?.team_id
+      }));
 
       // 5. Get Unique Cases for Details
       const activeCaseIds = [...new Set(logs.map(l => l.case_id))];
@@ -1159,8 +1167,8 @@ export const customerCaseService = {
         const teamTelecallers = (team.telecallers as { id: string, name: string }[]) || [];
 
         const telecallerStats = teamTelecallers.map(t => {
-          const totalVariables = caseCounts.get(t.id) || 0;
-          const userLogs = logs.filter(l => l.employee_id === t.id);
+          const totalVariables = caseCounts.get(`${t.id}_${team.id}`) || 0;
+          const userLogs = logs.filter(l => l.employee_id === t.id && l.team_id === team.id);
           const uniqueWorkedCaseIds = [...new Set(userLogs.map(l => l.case_id))];
 
           // Build Case Details
@@ -1438,7 +1446,7 @@ export const customerCaseService = {
     return allData || [];
   },
 
-  async createBulkCases(cases: Omit<CustomerCase, 'id' | 'created_at' | 'updated_at'>[], onProgress?: (progress: number) => void): Promise<CaseUploadResult> {
+  async createBulkCases(cases: Omit<CustomerCase, 'id' | 'created_at' | 'updated_at'>[], onProgress?: (progress: number, uploaded?: number) => void): Promise<CaseUploadResult> {
     let totalUploaded = 0;
     let autoAssigned = 0;
     let unassigned = 0;
@@ -1493,36 +1501,101 @@ export const customerCaseService = {
 
         // Auto-assign based on EMPID if available
         if (caseData.case_data?.EMPID && telecallerMap.has(String(caseData.case_data.EMPID))) {
-          caseData.telecaller_id = telecallerMap.get(String(caseData.case_data.EMPID));
+          const telecallerUuid = telecallerMap.get(String(caseData.case_data.EMPID));
+          caseData.telecaller_id = telecallerUuid;
           caseData.assigned_employee_id = String(caseData.case_data.EMPID);
           caseData.case_status = 'assigned';
           autoAssigned++;
         } else {
-          caseData.telecaller_id = undefined;
+          // Ensure telecaller_id is not sent for unassigned cases
+          delete (caseData as { telecaller_id?: string }).telecaller_id;
           caseData.assigned_employee_id = 'UNASSIGNED'; // Default value for unassigned cases
           caseData.case_status = 'pending';
           unassigned++;
         }
 
-        // IMPORTANT: Remove status field if it exists (column was removed from database)
-        if ('status' in caseData) {
-          delete (caseData as { status?: string }).status;
+        // Create a clean insert payload
+        const insertPayload: Record<string, unknown> = {
+          tenant_id: caseData.tenant_id,
+          team_id: caseData.team_id,
+          product_name: caseData.product_name,
+          loan_id: caseData.loan_id,
+          customer_name: caseData.customer_name,
+          mobile_no: caseData.mobile_no,
+          alternate_number: caseData.alternate_number,
+          email: caseData.email,
+          loan_amount: caseData.loan_amount,
+          loan_type: caseData.loan_type,
+          outstanding_amount: caseData.outstanding_amount,
+          pos_amount: caseData.pos_amount,
+          emi_amount: caseData.emi_amount,
+          pending_dues: caseData.pending_dues,
+          dpd: caseData.dpd,
+          branch_name: caseData.branch_name,
+          address: caseData.address,
+          city: caseData.city,
+          state: caseData.state,
+          pincode: caseData.pincode,
+          sanction_date: caseData.sanction_date,
+          last_paid_date: caseData.last_paid_date,
+          last_paid_amount: caseData.last_paid_amount,
+          payment_link: caseData.payment_link,
+          remarks: caseData.remarks,
+          case_data: caseData.case_data,
+          uploaded_by: caseData.uploaded_by,
+          assigned_employee_id: caseData.assigned_employee_id,
+          case_status: caseData.case_status
+        };
+
+        // Only include telecaller_id if it's a valid UUID
+        if (caseData.telecaller_id && typeof caseData.telecaller_id === 'string' && caseData.telecaller_id.length === 36) {
+          insertPayload.telecaller_id = caseData.telecaller_id;
         }
 
         // Try to insert first, if it fails due to duplicate, try to update
         let { error } = await supabase
           .from(CUSTOMER_CASE_TABLE)
-          .insert([caseData]);
+          .insert([insertPayload]);
 
         // If insert failed due to duplicate key, try update
         if (error && error.code === '23505') {
+          // Create a clean update object without spreading to avoid field corruption
+          const updateData: Record<string, unknown> = {
+            customer_name: caseData.customer_name,
+            mobile_no: caseData.mobile_no,
+            alternate_number: caseData.alternate_number,
+            email: caseData.email,
+            loan_amount: caseData.loan_amount,
+            loan_type: caseData.loan_type,
+            outstanding_amount: caseData.outstanding_amount,
+            pos_amount: caseData.pos_amount,
+            emi_amount: caseData.emi_amount,
+            pending_dues: caseData.pending_dues,
+            dpd: caseData.dpd,
+            branch_name: caseData.branch_name,
+            address: caseData.address,
+            city: caseData.city,
+            state: caseData.state,
+            pincode: caseData.pincode,
+            sanction_date: caseData.sanction_date,
+            last_paid_date: caseData.last_paid_date,
+            last_paid_amount: caseData.last_paid_amount,
+            payment_link: caseData.payment_link,
+            remarks: caseData.remarks,
+            case_data: caseData.case_data,
+            case_status: caseData.case_status,
+            assigned_employee_id: caseData.assigned_employee_id,
+            updated_at: new Date().toISOString()
+          };
+
+          // Only include telecaller_id if it exists and is a valid UUID
+          if (caseData.telecaller_id && typeof caseData.telecaller_id === 'string' && caseData.telecaller_id.length === 36) {
+            updateData.telecaller_id = caseData.telecaller_id;
+          }
 
           const { error: updateError } = await supabase
             .from(CUSTOMER_CASE_TABLE)
-            .update({
-              ...caseData,
-              updated_at: new Date().toISOString()
-            })
+            .update(updateData)
             .eq('tenant_id', caseData.tenant_id)
             .eq('loan_id', caseData.loan_id);
 
@@ -1546,10 +1619,10 @@ export const customerCaseService = {
           totalUploaded++;
         }
 
-        // Report progress
+        // Report progress with uploaded count
         if (onProgress) {
           const progress = Math.round(((i + 1) / cases.length) * 100);
-          onProgress(progress);
+          onProgress(progress, totalUploaded);
         }
       } catch (error) {
         errors.push({
@@ -2107,25 +2180,22 @@ export const customerCaseService = {
         return [];
       }
 
-      // If no employeeId and no teamId, return empty (prevents showing all PTPs)
-      if (!employeeId && !teamId) {
-        console.warn('⚠️ PTP request without employeeId or teamId - returning empty');
-        return [];
-      }
+      // NOTE: Removed check for !employeeId && !teamId to allow fetching all PTPs for the tenant (e.g. for Company Admin)
 
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date();
       endOfDay.setHours(23, 59, 59, 999);
 
-      // 1. Get ALL logs for today
+      // 1. Get ALL logs for today for this tenant
       const logsQuery = supabase
         .from(CASE_CALL_LOG_TABLE)
         .select('case_id, ptp_datetime')
+        .eq('tenant_id', tenantId) // Filter by tenant
         .gte('ptp_datetime', startOfDay.toISOString())
         .lte('ptp_datetime', endOfDay.toISOString())
         .not('ptp_datetime', 'is', null)
-        .order('ptp_datetime', { ascending: true }); // Get earliest PTPs first? or just chronological
+        .order('ptp_datetime', { ascending: true });
 
       const { data: logs, error: logsError } = await logsQuery;
 
@@ -2257,21 +2327,18 @@ export const customerCaseService = {
         return [];
       }
 
-      // If no employeeId and no teamId, return empty (prevents showing all callbacks)
-      if (!employeeId && !teamId) {
-        console.warn('⚠️ Callback request without employeeId or teamId - returning empty');
-        return [];
-      }
+      // NOTE: Removed check for !employeeId && !teamId to allow fetching all Callbacks for the tenant
 
       const startOfDay = new Date();
       startOfDay.setHours(0, 0, 0, 0);
       const endOfDay = new Date();
       endOfDay.setHours(23, 59, 59, 999);
 
-      // 1. Get ALL callback logs for today
+      // 1. Get ALL callback logs for today for this tenant
       const logsQuery = supabase
         .from(CASE_CALL_LOG_TABLE)
         .select('case_id, callback_datetime')
+        .eq('tenant_id', tenantId)
         .gte('callback_datetime', startOfDay.toISOString())
         .lte('callback_datetime', endOfDay.toISOString())
         .not('callback_datetime', 'is', null)
@@ -2436,6 +2503,215 @@ export const customerCaseService = {
     } catch (error) {
       console.error('Error fetching global stats:', error);
       return { totalCollected: 0, trend: [], recentLogs: [] };
+    }
+  },
+
+  async toggleRetainCase(caseId: string, isRetained: boolean): Promise<boolean> {
+    try {
+      const { error } = await supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .update({ is_retained: isRetained, updated_at: new Date().toISOString() })
+        .eq('id', caseId);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error toggling retain status:', error);
+      throw error;
+    }
+  },
+
+  async getRetainedCases(tenantId: string, employeeId: string): Promise<TeamInchargeCase[]> {
+    try {
+      const { data: cases, error } = await supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .select('*')
+        .eq('tenant_id', tenantId)
+        .eq('telecaller_id', employeeId)
+        .eq('is_retained', true)
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+      if (!cases || cases.length === 0) return [];
+
+      // Fetch telecaller details to match TeamInchargeCase structure
+      const { data: telecaller, error: telError } = await supabase
+        .from('employees')
+        .select('id, name, emp_id')
+        .eq('id', employeeId)
+        .single();
+
+      const telecallerDetails = (!telError && telecaller) ? telecaller : null;
+
+      return cases.map(c => ({
+        ...c,
+        telecaller: telecallerDetails
+      })) as TeamInchargeCase[];
+    } catch (error) {
+      console.error('Error fetching retained cases:', error);
+      return [];
+    }
+  },
+
+  async bulkUpdateCallResponses(
+    tenantId: string,
+    employeeId: string,
+    updates: Array<{
+      loan_id: string;
+      call_status: string;
+      remarks?: string;
+      ptp_date?: string;
+      ptp_amount?: number;
+    }>
+  ): Promise<{ success: number; failed: number; errors: string[] }> {
+    try {
+      console.log(`🚀 Starting bulk update for ${updates.length} records`);
+
+      // 1. Fetch all cases assigned to this employee to build a Loan ID -> Case ID map
+      // We also fetch current case_data to perform a merge
+      const { data: assignedCases, error: fetchError } = await supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .select('id, loan_id, case_data')
+        .eq('tenant_id', tenantId)
+        .eq('telecaller_id', employeeId);
+
+      if (fetchError) throw fetchError;
+
+      const loanToCaseMap = new Map<string, string>();
+      const caseDataMap = new Map<string, Record<string, unknown>>();
+      assignedCases?.forEach(c => {
+        if (c.loan_id) {
+          loanToCaseMap.set(c.loan_id, c.id);
+          caseDataMap.set(c.id, c.case_data || {});
+        }
+      });
+
+      const callLogsToInsert = [];
+      const casesToUpdate = [];
+      const errors: string[] = [];
+      let successCount = 0;
+      let failedCount = 0;
+
+      for (const update of updates) {
+        const caseId = loanToCaseMap.get(update.loan_id);
+        if (!caseId) {
+          errors.push(`Loan ID ${update.loan_id} not found or not assigned to you.`);
+          failedCount++;
+          continue;
+        }
+
+        // Validate Call Status
+        if (!CALL_STATUSES.includes(update.call_status as CallStatus)) {
+          errors.push(`Invalid status '${update.call_status}' for Loan ID ${update.loan_id}. Allowed: ${CALL_STATUSES.join(', ')}`);
+          failedCount++;
+          continue;
+        }
+
+        // Prepare Call Log
+        callLogsToInsert.push({
+          tenant_id: tenantId,
+          case_id: caseId,
+          employee_id: employeeId,
+          call_status: update.call_status,
+          call_notes: update.remarks || '',
+          ptp_datetime: update.ptp_date ? new Date(update.ptp_date).toISOString() : null,
+          amount_collected: update.ptp_amount || 0,
+          created_at: new Date().toISOString()
+        });
+
+        // Prepare Case Update - Merging into case_data for schema compatibility
+        const currentData = caseDataMap.get(caseId) || {};
+        const mergedCaseData = {
+          ...currentData,
+          latest_call_status: update.call_status,
+          latest_call_notes: update.remarks || '',
+          latest_call_date: new Date().toISOString(),
+          ...(update.ptp_date && { latest_ptp_date: update.ptp_date }),
+          ...(update.ptp_amount && { last_ptp_amount: update.ptp_amount })
+        };
+
+        casesToUpdate.push({
+          id: caseId,
+          tenant_id: tenantId,
+          case_status: 'in_progress',
+          case_data: mergedCaseData,
+          updated_at: new Date().toISOString()
+        });
+
+        successCount++;
+      }
+
+      // 2. Perform batch operations
+      if (callLogsToInsert.length > 0) {
+        const { error: logError } = await supabase.from(CASE_CALL_LOG_TABLE).insert(callLogsToInsert);
+        if (logError) throw logError;
+      }
+
+      if (casesToUpdate.length > 0) {
+        // Perform individual updates since upsert requires all non-null columns
+        for (const caseUpdate of casesToUpdate) {
+          const { error: caseError } = await supabase
+            .from(CUSTOMER_CASE_TABLE)
+            .update({
+              case_status: caseUpdate.case_status,
+              case_data: caseUpdate.case_data,
+              updated_at: caseUpdate.updated_at
+            })
+            .eq('id', caseUpdate.id)
+            .eq('tenant_id', caseUpdate.tenant_id);
+
+          if (caseError) throw caseError;
+        }
+      }
+
+      return {
+        success: successCount,
+        failed: failedCount,
+        errors
+      };
+    } catch (error) {
+      console.error('❌ Bulk update failed:', error);
+      throw error;
+    }
+  },
+
+  async previewBulkUpdates(
+    tenantId: string,
+    employeeId: string,
+    loanIds: string[]
+  ): Promise<Array<{ loan_id: string; customer_name?: string; status: 'found' | 'not_found' | 'not_assigned' }>> {
+    try {
+      // 1. Fetch all matching cases for these Loan IDs in the tenant
+      const { data: matchedCases, error } = await supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .select('loan_id, customer_name, telecaller_id')
+        .eq('tenant_id', tenantId)
+        .in('loan_id', loanIds);
+
+      if (error) throw error;
+
+      // 2. Build a map for lookup
+      const loanMap = new Map<string, { name: string; assignedTo: string | null }>();
+      matchedCases?.forEach(c => {
+        if (c.loan_id) {
+          loanMap.set(c.loan_id, { name: c.customer_name, assignedTo: c.telecaller_id });
+        }
+      });
+
+      // 3. Process each requested Loan ID
+      return loanIds.map(id => {
+        const match = loanMap.get(id);
+        if (!match) {
+          return { loan_id: id, status: 'not_found' };
+        }
+        if (match.assignedTo !== employeeId) {
+          return { loan_id: id, customer_name: match.name, status: 'not_assigned' };
+        }
+        return { loan_id: id, customer_name: match.name, status: 'found' };
+      });
+    } catch (error) {
+      console.error('❌ Preview failed:', error);
+      throw error;
     }
   }
 };

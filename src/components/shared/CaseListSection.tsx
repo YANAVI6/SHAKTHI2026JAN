@@ -16,6 +16,7 @@ import { TeamService, TeamWithDetails } from '../../services/teamService';
 import { employeeService } from '../../services/employeeService';
 import { Employee } from '../../types/employee';
 import { Modal } from './Modal';
+import { supabase } from '../../lib/supabase';
 
 interface CaseListSectionProps {
     user: {
@@ -32,6 +33,7 @@ export const CaseListSection: React.FC<CaseListSectionProps> = ({ user, onCaseCl
     const [searchTerm, setSearchTerm] = useState('');
     const [teams, setTeams] = useState<TeamWithDetails[]>([]);
     const [telecallers, setTelecallers] = useState<Employee[]>([]);
+    const [filteredTelecallers, setFilteredTelecallers] = useState<Employee[]>([]);
     const [filters, setFilters] = useState({
         teamId: 'all',
         telecallerId: 'all',
@@ -80,9 +82,50 @@ export const CaseListSection: React.FC<CaseListSectionProps> = ({ user, onCaseCl
         fetchData();
     }, [user.tenantId, user.role]);
 
-    const filteredTelecallers = useMemo(() => {
-        if (filters.teamId === 'all') return telecallers;
-        return telecallers.filter(tc => tc.teamId === filters.teamId);
+    useEffect(() => {
+        const updateFilteredTelecallers = async () => {
+            if (filters.teamId === 'all') {
+                setFilteredTelecallers(telecallers);
+                return;
+            }
+
+            try {
+                const { data, error } = await supabase
+                    .from('team_telecallers')
+                    .select(`
+                        employees:telecaller_id(*)
+                    `)
+                    .eq('team_id', filters.teamId);
+
+                if (error) throw error;
+
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const employees = (data || []).map((tt: any) => {
+                    const emp = tt.employees;
+                    if (!emp) return null;
+                    return {
+                        id: emp.id,
+                        tenantId: emp.tenant_id,
+                        name: emp.name,
+                        mobile: emp.mobile,
+                        empId: emp.emp_id,
+                        role: emp.role,
+                        status: emp.status,
+                        createdAt: new Date(emp.created_at),
+                        updatedAt: new Date(emp.updated_at),
+                        createdBy: emp.created_by,
+                        teamId: emp.team_id
+                    };
+                }).filter(Boolean) as Employee[];
+
+                setFilteredTelecallers(employees);
+            } catch (error) {
+                console.error('Error filtering telecallers:', error);
+                setFilteredTelecallers([]);
+            }
+        };
+
+        updateFilteredTelecallers();
     }, [telecallers, filters.teamId]);
 
     const filteredCases = useMemo(() => {

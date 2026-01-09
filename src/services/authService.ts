@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { comparePassword } from '../utils/passwordUtils';
-import { SUPER_ADMIN_TABLE, COMPANY_ADMIN_TABLE, EMPLOYEE_TABLE, USER_ACTIVITY_TABLE } from '../models';
+import { SUPER_ADMIN_TABLE, COMPANY_ADMIN_TABLE, EMPLOYEE_TABLE } from '../models';
 
 export interface LoginCredentials {
   username: string;
@@ -108,36 +108,6 @@ export const loginCompanyAdmin = async (credentials: LoginCredentials, tenantSlu
     // Password is valid - now track login activity
     console.log('✅ Password valid, tracking login activity for Company Admin:', adminData.employee_id);
 
-    try {
-      // Use upsert to handle login activity - eliminates race conditions
-      // This will insert if not exists, or update if exists based on (tenant_id, employee_id)
-      const { error: upsertError } = await supabase
-        .from(USER_ACTIVITY_TABLE)
-        .upsert({
-          tenant_id: adminData.tenant_id,
-          employee_id: adminData.id,
-          login_time: new Date().toISOString(),
-          last_active_time: new Date().toISOString(),
-          status: 'Online',
-          logout_time: null,
-          logout_reason: null,
-          total_break_time: 0,
-          total_idle_time: 0
-        }, {
-          onConflict: 'tenant_id,employee_id',
-          ignoreDuplicates: false
-        });
-
-      if (upsertError) {
-        console.error('❌ Error tracking login activity:', upsertError);
-      } else {
-        console.log('✅ Login activity tracked for Company Admin:', adminData.employee_id);
-      }
-    } catch (activityError) {
-      console.error('❌ Error tracking login activity:', activityError);
-      // Don't fail login if activity tracking fails
-    }
-
     return {
       id: adminData.id,
       username: adminData.employee_id,
@@ -182,36 +152,6 @@ export const loginCompanyAdmin = async (credentials: LoginCredentials, tenantSlu
 
     // Password is valid - now track login activity
     console.log('✅ Password valid, tracking login activity for employee:', employeeData.emp_id);
-
-    try {
-      // Use upsert to handle login activity - eliminates race conditions
-      // This will insert if not exists, or update if exists based on (tenant_id, employee_id)
-      const { error: upsertError } = await supabase
-        .from(USER_ACTIVITY_TABLE)
-        .upsert({
-          tenant_id: employeeData.tenant_id,
-          employee_id: employeeData.id,
-          login_time: new Date().toISOString(),
-          last_active_time: new Date().toISOString(),
-          status: 'Online',
-          logout_time: null,
-          logout_reason: null,
-          total_break_time: 0,
-          total_idle_time: 0
-        }, {
-          onConflict: 'tenant_id,employee_id',
-          ignoreDuplicates: false
-        });
-
-      if (upsertError) {
-        console.error('❌ Error tracking login activity:', upsertError);
-      } else {
-        console.log('✅ Login activity tracked for employee:', employeeData.emp_id);
-      }
-    } catch (activityError) {
-      console.error('❌ Error tracking login activity:', activityError);
-      // Don't fail login if activity tracking fails
-    }
 
     return {
       id: employeeData.id,

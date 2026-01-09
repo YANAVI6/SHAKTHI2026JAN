@@ -105,18 +105,29 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
     sessionStorage.removeItem(USER_STORAGE_KEY);
   }, [user?.id, user?.tenantId, user?.role]);
 
-  // Heartbeat and Auto-logout logic
+  // 1. Initial restoration heartbeat (runs once on mount or when user changes)
   useEffect(() => {
     if (!user?.id || !user?.tenantId) return;
 
-    // Only track activity for Telecallers, Team Incharges, and Company Admins (who are in employees table)
     const role = user.role?.toLowerCase() || '';
     if (role !== 'telecaller' && role !== 'teamincharge' && role !== 'team incharge' && role !== 'companyadmin') {
       return;
     }
 
-    // Initial heartbeat
-    activityService.updateLastActive(user.id, user.tenantId).catch(console.error);
+    console.log('🔄 Performing initial activity restoration for:', user.id);
+    const lastUpdateKey = `last_activity_update_${user.id}`;
+    localStorage.removeItem(lastUpdateKey);
+    activityService.updateLastActive(user.id, user.tenantId, true).catch(console.error);
+  }, [user?.id, user?.tenantId, user?.role]);
+
+  // 2. Periodic Heartbeat and Auto-logout logic
+  useEffect(() => {
+    if (!user?.id || !user?.tenantId) return;
+
+    const role = user.role?.toLowerCase() || '';
+    if (role !== 'telecaller' && role !== 'teamincharge' && role !== 'team incharge' && role !== 'companyadmin') {
+      return;
+    }
 
     const interval = setInterval(() => {
       const now = Date.now();
@@ -130,7 +141,6 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
       }
 
       // Only send heartbeat if user has been active in the last minute
-      // This allows the "last_active_time" in DB to age, triggering "Idle" status
       if (timeSinceLastInteraction < 60000) {
         activityService.updateLastActive(user.id, user.tenantId!).catch(console.error);
       }
@@ -300,6 +310,17 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
           );
         } else {
           console.warn('⚠️ No tenant ID found for user');
+        }
+
+        // Password and Role are valid - now track login activity
+        try {
+          const roleNormalized = actualRole.toLowerCase();
+          if (roleNormalized === 'telecaller' || roleNormalized === 'teamincharge' || roleNormalized === 'team incharge' || roleNormalized === 'companyadmin') {
+            console.log('📝 Tracking login activity for verified role:', actualRole);
+            await activityService.resumeSession(authenticatedUser.id, authenticatedUser.tenantId!);
+          }
+        } catch (activityError) {
+          console.error('❌ Error tracking login activity:', activityError);
         }
 
         setUser(userData);

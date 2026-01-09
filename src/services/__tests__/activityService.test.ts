@@ -109,10 +109,11 @@ describe('activityService', () => {
         it('should set status to Break', async () => {
             const mockUpdate = vi.fn().mockReturnThis();
             (supabase.from as unknown as Mock).mockImplementation(() => ({
-                update: mockUpdate,
+                select: vi.fn().mockReturnThis(),
                 eq: vi.fn().mockReturnThis(),
                 is: vi.fn().mockReturnThis(),
-                select: vi.fn().mockResolvedValue({ data: [{ id: '1' }], error: null })
+                maybeSingle: vi.fn().mockResolvedValue({ data: { id: '1' }, error: null }),
+                update: mockUpdate
             }));
 
             await activityService.startBreak('emp-1');
@@ -131,7 +132,7 @@ describe('activityService', () => {
                 select: vi.fn().mockReturnThis(),
                 eq: vi.fn().mockReturnThis(),
                 is: vi.fn().mockReturnThis(),
-                single: vi.fn().mockResolvedValue({
+                maybeSingle: vi.fn().mockResolvedValue({
                     data: { current_break_start: start.toISOString(), total_break_time: 5 },
                     error: null
                 }),

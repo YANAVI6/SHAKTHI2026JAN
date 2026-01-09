@@ -108,7 +108,7 @@ export const EditEmployeeForm: React.FC<EditEmployeeFormProps> = ({
               onChange={(e) => {
                 const value = e.target.value;
                 if (value === 'Telecaller' || value === 'TeamIncharge' || value === 'Admin') {
-                  setFormData({ ...formData, role: value as any });
+                  setFormData({ ...formData, role: value as 'Telecaller' | 'TeamIncharge' | 'Admin' });
                 }
               }}
               required

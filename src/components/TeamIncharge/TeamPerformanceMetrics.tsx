@@ -83,26 +83,26 @@ export const TeamPerformanceMetrics: React.FC = () => {
         teamsData.map(async (team) => {
           console.log(`\n--- Processing Team: ${team.name} (ID: ${team.id}) ---`);
 
-          const { data: teamEmployees, error: empError } = await supabase
-            .from('employees')
-            .select('id, name, emp_id, role, status')
-            .eq('team_id', team.id)
-            .ilike('role', 'telecaller')
-            .ilike('status', 'active');
+          const { data: teamTelecallers, error: ttError } = await supabase
+            .from('team_telecallers')
+            .select(`
+              employees:telecaller_id(id, name, emp_id, role, status)
+            `)
+            .eq('team_id', team.id);
 
-          if (empError) {
-            console.error('Error fetching employees for team:', team.id, empError);
-            console.error('Error details:', {
-              message: empError.message,
-              details: empError.details,
-              hint: empError.hint,
-              code: empError.code
-            });
+          if (ttError) {
+            console.error('Error fetching telecallers for team:', team.id, ttError);
           }
 
-          console.log(`Telecallers in ${team.name}:`, teamEmployees?.length || 0, teamEmployees);
+          // Extract telecaller data
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const teamEmployees = teamTelecallers?.map((tt: any) => tt.employees).filter((emp: any) =>
+            emp && emp.role?.toLowerCase() === 'telecaller' && emp.status?.toLowerCase() === 'active'
+          ) || [];
 
-          const telecallerIds = teamEmployees?.map(emp => emp.id) || [];
+          console.log(`Telecallers in ${team.name}:`, teamEmployees.length, teamEmployees);
+
+          const telecallerIds = teamEmployees.map(emp => emp.id);
           console.log(`Telecaller IDs for ${team.name}:`, telecallerIds);
 
           // Fetch cases for this team in batches
@@ -267,29 +267,39 @@ export const TeamPerformanceMetrics: React.FC = () => {
     const fetchTelecallers = async () => {
       console.log('Fetching telecallers for team:', selectedTeamId);
 
-      let query = supabase
-        .from('employees')
-        .select('id, name')
-        .ilike('role', 'telecaller')
-        .ilike('status', 'active');
-
       if (selectedTeamId !== 'all') {
-        query = query.eq('team_id', selectedTeamId);
+        const { data, error } = await supabase
+          .from('team_telecallers')
+          .select(`
+            employees:telecaller_id(id, name)
+          `)
+          .eq('team_id', selectedTeamId);
+
+        if (error) {
+          console.error('Error fetching team telecallers:', error);
+          setTelecallers([]);
+        } else {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const employees = data?.map((tt: any) => tt.employees).filter(Boolean) || [];
+          console.log('Fetched team telecallers:', employees);
+          setTelecallers(employees);
+        }
       } else if (user?.tenantId) {
-        query = query.eq('tenant_id', user.tenantId);
+        const { data, error } = await supabase
+          .from('employees')
+          .select('id, name')
+          .eq('tenant_id', user.tenantId)
+          .ilike('role', 'telecaller')
+          .ilike('status', 'active');
+
+        if (error) {
+          console.error('Error fetching all telecallers:', error);
+          setTelecallers([]);
+        } else {
+          console.log('Fetched all telecallers:', data);
+          setTelecallers(data || []);
+        }
       }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error fetching telecallers:', error);
-      } else {
-        console.log('Fetched telecallers:', data);
-      }
-
-      setTelecallers(data || []);
-      // Don't reset telecaller ID automatically when fetching to preserve selection if possible
-      // setSelectedTelecallerId('all'); 
     };
 
     if (user?.tenantId) {

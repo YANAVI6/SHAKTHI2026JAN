@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, User, Phone, MapPin, Calendar, DollarSign, FileText, CheckCircle, MessageSquare, Clock, History, MessageCircle } from 'lucide-react';
+import { X, User, Phone, MapPin, Calendar, DollarSign, FileText, CheckCircle, MessageSquare, Clock, History, MessageCircle, RotateCcw } from 'lucide-react';
 import { CustomerCase } from './types';
 import { customerCaseService, CallLog } from '../../services/customerCaseService';
 import { useNotification, notificationHelpers } from '../shared/Notification';
@@ -40,6 +40,8 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
   const [showWhatsAppModal, setShowWhatsAppModal] = useState(false);
   const [newMobile, setNewMobile] = useState('');
   const [newAddress, setNewAddress] = useState('');
+  const [isRetained, setIsRetained] = useState(caseData?.is_retained || false);
+  const [isRetaining, setIsRetaining] = useState(false);
 
   // Memoized field definitions
   const loanFields = React.useMemo(() => [
@@ -123,6 +125,7 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
   useEffect(() => {
     if (isOpen && caseData?.id) {
       setCurrentCaseData(caseData);
+      setIsRetained(caseData.is_retained || false);
 
       // Fetch fresh data to ensure we have the latest custom_fields
       // This fixes the issue where closing and reopening the modal might show stale data
@@ -464,15 +467,47 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
     }
   };
 
+  const handleToggleRetain = async () => {
+    if (!currentCaseData?.id) return;
+
+    setIsRetaining(true);
+    try {
+      const newRetainStatus = !isRetained;
+      await customerCaseService.toggleRetainCase(currentCaseData.id, newRetainStatus);
+      setIsRetained(newRetainStatus);
+      showNotification(notificationHelpers.success(
+        newRetainStatus ? 'Case Retained' : 'Retention Removed',
+        newRetainStatus ? 'Case will be kept for next month' : 'Retention marker removed'
+      ));
+
+      if (onCaseUpdated) {
+        onCaseUpdated();
+      }
+    } catch (error) {
+      console.error('Error toggling retain status:', error);
+      showNotification(notificationHelpers.error('Error', 'Failed to update retention status'));
+    } finally {
+      setIsRetaining(false);
+    }
+  };
+
   if (!isOpen || !caseData) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
       <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-hidden">
         <div className="bg-gradient-to-r from-purple-600 to-blue-600 px-6 py-4 flex items-center justify-between">
-          <div className="flex items-center">
-            <FileText className="w-6 h-6 text-white mr-3" />
-            <h3 className="text-xl font-bold text-white">Case Details</h3>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center">
+              <FileText className="w-6 h-6 text-white mr-3" />
+              <h3 className="text-xl font-bold text-white">Case Details</h3>
+            </div>
+            {isRetained && (
+              <span className="flex items-center gap-1.5 px-3 py-1 bg-white/20 backdrop-blur-sm border border-white/30 rounded-full text-white text-xs font-bold animate-pulse">
+                <RotateCcw className="w-3 h-3" />
+                RETAINED FOR NEXT MONTH
+              </span>
+            )}
           </div>
           <button
             onClick={onClose}
@@ -597,6 +632,22 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
                           <span className="text-xs font-bold uppercase tracking-wider text-center line-clamp-1">Pay Received</span>
                         </button>
                       )}
+
+                      <button
+                        onClick={handleToggleRetain}
+                        disabled={isRetaining}
+                        className={`flex flex-col items-center justify-center p-3 py-4 bg-white border-2 rounded-2xl transition-all group ${isRetained
+                          ? 'border-purple-500 text-purple-600 bg-purple-50'
+                          : 'border-purple-100 text-purple-600 hover:bg-purple-50 hover:border-purple-200'
+                          } hover:shadow-md disabled:opacity-50`}
+                      >
+                        <div className={`p-2 rounded-xl mb-2 group-hover:scale-110 transition-transform ${isRetained ? 'bg-purple-200' : 'bg-purple-100'}`}>
+                          <RotateCcw className={`w-5 h-5 ${isRetaining ? 'animate-spin' : ''}`} />
+                        </div>
+                        <span className="text-xs font-bold uppercase tracking-wider text-center line-clamp-2">
+                          {isRetained ? 'Unmark Retain' : 'Retain Case'}
+                        </span>
+                      </button>
                     </div>
                   </div>
                 </div>

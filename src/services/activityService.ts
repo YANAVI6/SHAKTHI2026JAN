@@ -17,6 +17,7 @@ export interface ActivityLog {
     rawLoginTime: string;
     rawLastActive: string;
     totalIdleMinutes: number;
+    totalLoggedInMinutes: number;
 }
 
 export interface UserActivity {
@@ -141,7 +142,8 @@ export const activityService = {
                         currentBreakStart: null,
                         rawLoginTime: '',
                         rawLastActive: '',
-                        totalIdleMinutes: 0
+                        totalIdleMinutes: 0,
+                        totalLoggedInMinutes: 0
                     };
                 }
 
@@ -261,7 +263,8 @@ export const activityService = {
                     currentBreakStart: currentBreakStart,
                     rawLoginTime: firstSession.login_time,
                     rawLastActive: rawLastActive || '',
-                    totalIdleMinutes: totalIdleMinutes
+                    totalIdleMinutes: totalIdleMinutes,
+                    totalLoggedInMinutes: totalLoggedInMinutes
                 };
             });
 
@@ -320,6 +323,16 @@ export const activityService = {
                 throw error;
             }
 
+            // Sync with Chat Status
+            const { data: userData } = await supabase
+                .from(USER_ACTIVITY_TABLE)
+                .select('tenant_id')
+                .eq('employee_id', employeeId)
+                .maybeSingle();
+            if (userData?.tenant_id) {
+                await this.syncChatStatus(employeeId, userData.tenant_id, 'offline');
+            }
+
             console.log('✅ Logout tracked successfully. Records updated:', data?.length);
         } catch (error) {
             console.error('❌ Error tracking logout:', error);
@@ -364,6 +377,25 @@ export const activityService = {
                 console.error('Error in beacon logout:', err);
             });
 
+            // Also sync chat status via beacon
+            const chatUrl = `${supabaseUrl}/rest/v1/chat_user_status?user_id=eq.${employeeId}`;
+            fetch(chatUrl, {
+                method: 'PATCH',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'apikey': supabaseKey,
+                    'Authorization': `Bearer ${supabaseKey}`,
+                    'Prefer': 'return=minimal'
+                },
+                body: JSON.stringify({
+                    status: 'offline',
+                    last_seen: new Date().toISOString()
+                }),
+                keepalive: true
+            }).catch(err => {
+                console.error('Error in beacon chat status sync:', err);
+            });
+
             return true;
         } catch (error) {
             console.error('Error in trackLogoutBeacon:', error);
@@ -372,13 +404,13 @@ export const activityService = {
     },
 
     // Update last active time (heartbeat)
-    async updateLastActive(employeeId: string, _tenantId: string): Promise<void> { // eslint-disable-line @typescript-eslint/no-unused-vars
+    async updateLastActive(employeeId: string, tenantId: string, force: boolean = false): Promise<void> {
         try {
             const lastUpdateKey = `last_activity_update_${employeeId}`;
             const lastUpdate = localStorage.getItem(lastUpdateKey);
             const now = Date.now();
 
-            if (lastUpdate && now - parseInt(lastUpdate) < 60000) {
+            if (!force && lastUpdate && now - parseInt(lastUpdate) < 60000) {
                 return;
             }
 
@@ -390,6 +422,13 @@ export const activityService = {
                 .order('login_time', { ascending: false });
 
             if (!sessions || sessions.length === 0) {
+                if (force) {
+                    console.log('🔄 No active session found for heartbeat, attempting to resume (forced)...');
+                    await this.resumeSession(employeeId, tenantId);
+                } else {
+                    // Regular heartbeat shouldn't resume a session that was explicitly closed
+                    console.log('ℹ️ No active session found for heartbeat, skipping resumption.');
+                }
                 localStorage.setItem(lastUpdateKey, now.toString());
                 return;
             }
@@ -415,6 +454,9 @@ export const activityService = {
 
                 updatePayload.status = 'Online';
                 updatePayload.total_idle_time = (session.total_idle_time || 0) + idleDuration;
+            } else if (session && session.status === 'Break') {
+                // If on break, we just update last_active_time but DON'T change status to Online
+                // and don't count idle time.
             }
 
             const { error } = await supabase
@@ -424,6 +466,9 @@ export const activityService = {
                 .is('logout_time', null);
 
             if (error) throw error;
+
+            // Sync with Chat Status if status changed or just to refresh last_seen
+            await this.syncChatStatus(employeeId, tenantId, updatePayload.status === 'Online' ? 'online' : (session.status === 'Break' ? 'break' : (session.status === 'Idle' ? 'idle' : 'online')));
 
             localStorage.setItem(lastUpdateKey, now.toString());
         } catch (error) {
@@ -441,9 +486,89 @@ export const activityService = {
                     // We don't update last_active_time here so we can calculate duration later
                 })
                 .eq('employee_id', employeeId)
-                .is('logout_time', null);
+                .is('logout_time', null)
+                .neq('status', 'Break'); // Don't set to Idle if already on Break
+
+            // Sync with Chat Status
+            const { data: userData } = await supabase
+                .from(USER_ACTIVITY_TABLE)
+                .select('tenant_id')
+                .eq('employee_id', employeeId)
+                .maybeSingle();
+            if (userData?.tenant_id) {
+                await this.syncChatStatus(employeeId, userData.tenant_id, 'idle');
+            }
         } catch (error) {
             console.error('Error setting idle:', error);
+        }
+    },
+
+    // Resume or create a session (used for page refresh restoration)
+    async resumeSession(employeeId: string, tenantId: string): Promise<void> {
+        try {
+            console.log('🔄 Resuming activity session for employee:', employeeId);
+
+            // 1. Check if a record already exists to preserve totals
+            const { data: existingActivity } = await supabase
+                .from(USER_ACTIVITY_TABLE)
+                .select('login_time, total_break_time, total_idle_time')
+                .eq('tenant_id', tenantId)
+                .eq('employee_id', employeeId)
+                .maybeSingle();
+
+            const now = new Date();
+            const isSameDay = existingActivity &&
+                new Date(existingActivity.login_time).toDateString() === now.toDateString();
+
+            // 2. Use upsert to restore "Online" status and preserve fields
+            const { error: upsertError } = await supabase
+                .from(USER_ACTIVITY_TABLE)
+                .upsert({
+                    tenant_id: tenantId,
+                    employee_id: employeeId,
+                    login_time: isSameDay ? existingActivity.login_time : now.toISOString(),
+                    last_active_time: now.toISOString(),
+                    status: 'Online',
+                    logout_time: null,
+                    logout_reason: null,
+                    total_break_time: isSameDay ? existingActivity.total_break_time : (existingActivity?.total_break_time || 0),
+                    total_idle_time: isSameDay ? existingActivity.total_idle_time : (existingActivity?.total_idle_time || 0)
+                }, {
+                    onConflict: 'tenant_id,employee_id',
+                    ignoreDuplicates: false
+                });
+
+            if (upsertError) {
+                console.error('❌ Error in resumeSession upsert:', upsertError);
+                throw upsertError;
+            }
+
+            console.log('✅ Session resumed successfully for:', employeeId);
+        } catch (error) {
+            console.error('❌ Error resuming session:', error);
+        }
+    },
+
+    // Sync activity status with chat status table
+    async syncChatStatus(userId: string, tenantId: string, status: string): Promise<void> {
+        try {
+            // Map activity status to chat status
+            let chatStatus = status.toLowerCase();
+            if (chatStatus === 'online') chatStatus = 'online';
+            else if (chatStatus === 'break') chatStatus = 'break';
+            else if (chatStatus === 'idle') chatStatus = 'idle';
+            else if (chatStatus === 'offline') chatStatus = 'offline';
+
+            await supabase
+                .from('chat_user_status')
+                .upsert({
+                    user_id: userId,
+                    tenant_id: tenantId,
+                    status: chatStatus,
+                    last_seen: new Date().toISOString()
+                }, { onConflict: 'user_id' });
+        } catch (error) {
+            console.error('Error syncing chat status:', error);
         }
     },
 
@@ -451,27 +576,55 @@ export const activityService = {
     async startBreak(employeeId: string): Promise<void> {
         try {
             console.log('🟠 Starting break for employee:', employeeId);
+
+            // 1. Fetch the active session
+            const { data: session, error: fetchError } = await supabase
+                .from(USER_ACTIVITY_TABLE)
+                .select('id')
+                .eq('employee_id', employeeId)
+                .is('logout_time', null)
+                .maybeSingle();
+
+            if (fetchError) {
+                console.error('❌ Error fetching session for break:', JSON.stringify(fetchError, null, 2));
+                throw fetchError;
+            }
+
+            if (!session) {
+                console.warn('⚠️ No active session found to start break');
+                return;
+            }
+
             const now = new Date().toISOString();
 
-            const { error, data } = await supabase
+            // 2. Update the session
+            const { error: updateError } = await supabase
                 .from(USER_ACTIVITY_TABLE)
                 .update({
                     status: 'Break',
                     current_break_start: now,
                     last_active_time: now
                 })
-                .eq('employee_id', employeeId)
-                .is('logout_time', null)
-                .select();
+                .eq('id', session.id);
 
-            if (error) {
-                console.error('❌ Error starting break:', error);
-                throw error;
+            if (updateError) {
+                console.error('❌ Error starting break:', JSON.stringify(updateError, null, 2));
+                throw updateError;
             }
 
-            console.log('✅ Break started successfully:', data);
+            // Sync with Chat Status
+            const { data: userData } = await supabase
+                .from(USER_ACTIVITY_TABLE)
+                .select('tenant_id')
+                .eq('employee_id', employeeId)
+                .maybeSingle();
+            if (userData?.tenant_id) {
+                await this.syncChatStatus(employeeId, userData.tenant_id, 'break');
+            }
+
+            console.log('✅ Break started successfully');
         } catch (error) {
-            console.error('❌ Error starting break:', error);
+            console.error('❌ Error in startBreak:', error);
             throw error;
         }
     },
@@ -483,13 +636,13 @@ export const activityService = {
 
             const { data: session, error: fetchError } = await supabase
                 .from(USER_ACTIVITY_TABLE)
-                .select('current_break_start, total_break_time')
+                .select('id, current_break_start, total_break_time')
                 .eq('employee_id', employeeId)
                 .is('logout_time', null)
-                .single();
+                .maybeSingle();
 
             if (fetchError) {
-                console.error('❌ Error fetching session:', fetchError);
+                console.error('❌ Error fetching session to end break:', JSON.stringify(fetchError, null, 2));
                 throw fetchError;
             }
 
@@ -504,7 +657,7 @@ export const activityService = {
 
             console.log('📊 Break duration:', breakDuration, 'minutes');
 
-            const { error: updateError, data } = await supabase
+            const { error: updateError } = await supabase
                 .from(USER_ACTIVITY_TABLE)
                 .update({
                     status: 'Online',
@@ -512,18 +665,26 @@ export const activityService = {
                     total_break_time: (session.total_break_time || 0) + breakDuration,
                     last_active_time: now.toISOString()
                 })
-                .eq('employee_id', employeeId)
-                .is('logout_time', null)
-                .select();
+                .eq('id', session.id);
 
             if (updateError) {
-                console.error('❌ Error updating break end:', updateError);
+                console.error('❌ Error updating break end:', JSON.stringify(updateError, null, 2));
                 throw updateError;
             }
 
-            console.log('✅ Break ended successfully:', data);
+            // Sync with Chat Status
+            const { data: userData } = await supabase
+                .from(USER_ACTIVITY_TABLE)
+                .select('tenant_id')
+                .eq('employee_id', employeeId)
+                .maybeSingle();
+            if (userData?.tenant_id) {
+                await this.syncChatStatus(employeeId, userData.tenant_id, 'online');
+            }
+
+            console.log('✅ Break ended successfully');
         } catch (error) {
-            console.error('❌ Error ending break:', error);
+            console.error('❌ Error in endBreak:', error);
             throw error;
         }
     },

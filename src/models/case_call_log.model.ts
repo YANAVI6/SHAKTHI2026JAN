@@ -13,6 +13,22 @@ export type CallStatus =
   | 'INC'          // Incomplete
   | 'PAYMENT_RECEIVED'; // Payment Received
 
+export const CALL_STATUSES: CallStatus[] = [
+  'WN',
+  'SW',
+  'RNR',
+  'BUSY',
+  'CALL_BACK',
+  'PTP',
+  'FUTURE_PTP',
+  'BPTP',
+  'RTP',
+  'NC',
+  'CD',
+  'INC',
+  'PAYMENT_RECEIVED'
+];
+
 export interface CaseCallLog {
   id: string;
   case_id: string;

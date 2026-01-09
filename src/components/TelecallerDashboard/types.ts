@@ -63,6 +63,7 @@ export interface CustomerCase {
   buckets?: string;
   custom_fields?: Record<string, unknown>;
   case_data?: Record<string, unknown>;
+  is_retained?: boolean;
 }
 
 export interface ColumnConfig {

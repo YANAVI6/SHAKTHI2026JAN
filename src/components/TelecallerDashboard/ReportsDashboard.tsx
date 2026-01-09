@@ -6,8 +6,10 @@ import { DailyPerformanceCard } from './reports/DailyPerformanceCard';
 import { WeeklySummaryCard } from './reports/WeeklySummaryCard';
 import { MonthlyReportCard } from './reports/MonthlyReportCard';
 import { CollectionsReportCard } from './reports/CollectionsReportCard';
-import { Download, FileSpreadsheet } from 'lucide-react';
+import { Download, FileSpreadsheet, RotateCcw } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { customerCaseService } from '../../services/customerCaseService';
+import type { TeamInchargeCase } from '../../types/caseManagement';
 
 export const ReportsDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -309,6 +311,75 @@ export const ReportsDashboard: React.FC = () => {
             Monthly Report
           </button>
           {downloading && <span className="text-sm text-gray-500 self-center animate-pulse">Generating report...</span>}
+        </div>
+      </div>
+
+      {/* Download Retained Cases Section */}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+        <div className="flex items-center mb-4">
+          <div className="p-2 bg-purple-100 rounded-lg mr-3">
+            <RotateCcw className="w-5 h-5 text-purple-600" />
+          </div>
+          <div>
+            <h3 className="text-lg font-semibold text-gray-900">Retained Cases Report</h3>
+            <p className="text-sm text-gray-600">Export cases marked for retention (next month payment)</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-4">
+          <button
+            onClick={async () => {
+              if (!user?.id || !user?.tenantId) return;
+              setDownloading(true);
+              try {
+                const retainedCases = await customerCaseService.getRetainedCases(user.tenantId, user.id);
+
+                if (retainedCases.length === 0) {
+                  alert('No retained cases found to download');
+                  return;
+                }
+
+                // Flatten and sanitize data for Excel
+                const flattenedData = retainedCases.map(caseData => {
+                  const getValue = (keys: string[]) => {
+                    for (const key of keys) {
+                      if (caseData[key as keyof TeamInchargeCase] !== undefined && caseData[key as keyof TeamInchargeCase] !== null && caseData[key as keyof TeamInchargeCase] !== '') return String(caseData[key as keyof TeamInchargeCase]);
+                      const nested = (caseData.case_data as Record<string, unknown> || {});
+                      if (nested[key] !== undefined && nested[key] !== null && nested[key] !== '') return String(nested[key]);
+                    }
+                    return '0';
+                  };
+
+                  return {
+                    'Customer Name': caseData.customer_name || '',
+                    'Loan ID': caseData.loan_id || '',
+                    'Mobile Number': caseData.mobile_no || '',
+                    'Outstanding Amount': caseData.outstanding_amount || getValue(['totalOutstanding', 'outstanding_amount']),
+                    'DPD': caseData.dpd || 0,
+                    'Last Paid Date': caseData.last_paid_date ? new Date(caseData.last_paid_date).toLocaleDateString() : '',
+                    'Retention Date': caseData.updated_at ? new Date(caseData.updated_at).toLocaleDateString() : '',
+                    'Current Status': caseData.case_status || 'assigned'
+                  };
+                });
+
+                const ws = XLSX.utils.json_to_sheet(flattenedData);
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Retained Cases");
+                XLSX.writeFile(wb, `Retained_Cases_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+              } catch (error) {
+                console.error('Error downloading retained report:', error);
+                alert('Failed to download report');
+              } finally {
+                setDownloading(false);
+              }
+            }}
+            disabled={downloading}
+            className="flex items-center gap-2 px-6 py-3 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition-all shadow-md hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
+          >
+            <Download className="w-5 h-5" />
+            Download Retained Cases (Excel)
+          </button>
         </div>
       </div>
     </div>

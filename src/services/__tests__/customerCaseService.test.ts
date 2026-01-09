@@ -163,4 +163,135 @@ describe('customerCaseService', () => {
             expect(result[0].latest_call_status).toBe('Connected');
         });
     });
+
+    describe('bulkUpdateCallResponses', () => {
+        it('should update cases with case_data fallback', async () => {
+            const updates = [{
+                loan_id: 'L123',
+                call_status: 'PTP',
+                remarks: 'Will pay tomorrow',
+                ptp_date: '2024-01-01T12:00:00Z',
+                ptp_amount: 5000
+            }];
+
+            const mockCases = [{
+                id: 'case-1',
+                loan_id: 'L123',
+                case_data: { some_field: 'value' }
+            }];
+
+            const insertMock = vi.fn().mockResolvedValue({ error: null });
+            const updateMock = vi.fn().mockReturnThis();
+            const eqMock = vi.fn().mockReturnThis();
+            const finalEqMock = vi.fn().mockResolvedValue({ error: null });
+
+            (supabase.from as unknown as Mock).mockImplementation((table) => {
+                if (table === 'customer_cases') { // CUSTOMER_CASE_TABLE
+                    // For fetching assigned cases: .select().eq().eq()
+                    const selectMock = vi.fn().mockReturnValue({
+                        eq: vi.fn().mockReturnValue({
+                            eq: vi.fn().mockResolvedValue({ data: mockCases, error: null })
+                        })
+                    });
+
+                    // For update: .update().eq().eq()
+                    updateMock.mockReturnValue({
+                        eq: eqMock.mockReturnValue({
+                            eq: finalEqMock
+                        })
+                    });
+
+                    return {
+                        select: selectMock,
+                        update: updateMock
+                    };
+                }
+                if (table === 'case_call_logs') { // CASE_CALL_LOG_TABLE
+                    return {
+                        insert: insertMock
+                    };
+                }
+                return {
+                    select: vi.fn().mockReturnThis(),
+                    eq: vi.fn().mockReturnThis()
+                };
+            });
+
+            const result = await customerCaseService.bulkUpdateCallResponses('tenant-1', 'emp-1', updates);
+
+            expect(result.success).toBe(1);
+            expect(insertMock).toHaveBeenCalled(); // Should insert call log
+            expect(updateMock).toHaveBeenCalled(); // Should update case
+
+            // Verify the update payload contains the case_data updates
+            const updateCall = updateMock.mock.calls[0][0]; // First arg of first call
+
+            expect(updateCall.case_data).toEqual(expect.objectContaining({
+                some_field: 'value',
+                latest_call_status: 'PTP',
+                latest_call_notes: 'Will pay tomorrow',
+                latest_ptp_date: '2024-01-01T12:00:00Z',
+                last_ptp_amount: 5000
+            }));
+            // It should NOT try to update dedicated columns like latest_call_status at the top level
+            expect(updateCall.latest_call_status).toBeUndefined();
+        });
+
+        it('should report errors for missing loans', async () => {
+            const updates = [{
+                loan_id: 'MISSING_ID',
+                call_status: 'PTP'
+            }];
+
+            (supabase.from as unknown as Mock).mockImplementation((table) => {
+                if (table === 'customer_cases') {
+                    return {
+                        select: vi.fn().mockReturnValue({
+                            eq: vi.fn().mockReturnValue({
+                                eq: vi.fn().mockResolvedValue({ data: [], error: null }) // No cases found
+                            })
+                        }),
+                        upsert: vi.fn()
+                    };
+                }
+                return { insert: vi.fn() };
+            });
+
+            const result = await customerCaseService.bulkUpdateCallResponses('tenant-1', 'emp-1', updates);
+
+            expect(result.failed).toBe(1);
+            expect(result.errors[0]).toContain('not found');
+        });
+
+        it('should report errors for invalid call status', async () => {
+            const updates = [{
+                loan_id: 'L123',
+                call_status: 'INVALID_STATUS'
+            }];
+
+            const mockCases = [{
+                id: 'case-1',
+                loan_id: 'L123',
+            }];
+
+            (supabase.from as unknown as Mock).mockImplementation((table) => {
+                if (table === 'customer_cases') {
+                    return {
+                        select: vi.fn().mockReturnValue({
+                            eq: vi.fn().mockReturnValue({
+                                eq: vi.fn().mockResolvedValue({ data: mockCases, error: null })
+                            })
+                        }),
+                        upsert: vi.fn()
+                    };
+                }
+                return { insert: vi.fn() };
+            });
+
+            const result = await customerCaseService.bulkUpdateCallResponses('tenant-1', 'emp-1', updates);
+
+            expect(result.failed).toBe(1);
+            expect(result.errors[0]).toContain('Invalid status');
+        });
+    });
 });

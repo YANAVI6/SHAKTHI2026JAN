@@ -35,7 +35,7 @@ export const TeamInchargeDashboard: React.FC<TeamInchargeDashboardProps> = ({ us
   const [selectedCase, setSelectedCase] = React.useState<CustomerCase | null>(null);
   const toast = useToast();
   const { tenantName } = useTenantName(user?.tenantId);
-  const { unreadCounts } = useChannels(user?.id || '');
+  const { unreadCounts } = useChannels(user?.id || '', user?.tenantId || '');
   const totalUnreadMessages = Object.values(unreadCounts).reduce((a: number, b: number) => a + b, 0);
 
   React.useEffect(() => {

@@ -24,7 +24,7 @@ export const PTPNotificationManager: React.FC<PTPNotificationManagerProps> = ({ 
     // Fetch PTP cases periodically or when forced by update
     useEffect(() => {
         const fetchPTPs = async () => {
-            if (!user.tenantId || !user.id || user.role !== 'Telecaller') {
+            if (!user.tenantId || !user.id || user.role !== 'Telecaller' || !selectedTeamId) {
                 return;
             }
 

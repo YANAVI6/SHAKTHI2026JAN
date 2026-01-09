@@ -13,6 +13,7 @@ export interface ChatChannel {
     created_at: string;
     updated_at: string;
     avatarUrl?: string; // Add avatarUrl
+    last_read_at?: string; // Add last_read_at for sync
 }
 
 export interface ChatMessage {
@@ -81,6 +82,7 @@ export class ChatService {
                 .from('chat_channel_members')
                 .select(`
                   channel_id,
+                  last_read_at,
                   chat_channels (
                     *,
                     chat_channel_members (
@@ -120,6 +122,7 @@ export class ChatService {
                 // Reconstruct the structure _formatChannelName expects, but with manually populated names
                 const channelWithNames = {
                     ...channel,
+                    last_read_at: item.last_read_at,
                     chat_channel_members: channel.chat_channel_members.map((m: { user_id: string }) => ({
                         user_id: m.user_id,
                         employees: {
@@ -413,6 +416,23 @@ export class ChatService {
         }
     }
 
+    /**
+     * Delete a channel
+     */
+    static async deleteChannel(channelId: string): Promise<void> {
+        try {
+            const { error } = await supabase
+                .from('chat_channels')
+                .delete()
+                .eq('id', channelId);
+
+            if (error) throw error;
+        } catch (error) {
+            console.error('Error deleting channel:', error);
+            throw error;
+        }
+    }
+
     // ==================== MESSAGING ====================
 
     /**
@@ -551,11 +571,11 @@ export class ChatService {
     /**
      * Update last read timestamp for a channel
      */
-    static async updateLastRead(channelId: string, userId: string): Promise<void> {
+    static async updateLastRead(channelId: string, userId: string, timestamp?: string): Promise<void> {
         try {
             const { error } = await supabase
                 .from('chat_channel_members')
-                .update({ last_read_at: new Date().toISOString() })
+                .update({ last_read_at: timestamp || new Date().toISOString() })
                 .eq('channel_id', channelId)
                 .eq('user_id', userId);
 

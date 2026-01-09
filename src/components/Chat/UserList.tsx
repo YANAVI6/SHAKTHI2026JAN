@@ -56,14 +56,14 @@ export const UserList: React.FC<UserListProps> = ({
         // Initial fetch
         const fetchStatuses = async () => {
             const { data } = await supabase
-                .from('user_activity')
-                .select('employee_id, status')
+                .from('chat_user_status')
+                .select('user_id, status')
                 .eq('tenant_id', tenantId);
 
             if (data) {
                 const newStatuses: Record<string, string> = {};
                 data.forEach(item => {
-                    newStatuses[item.employee_id] = item.status;
+                    newStatuses[item.user_id] = item.status;
                 });
                 setUserStatuses(newStatuses);
             }
@@ -73,13 +73,13 @@ export const UserList: React.FC<UserListProps> = ({
 
         // Real-time subscription
         const channel = supabase
-            .channel(`user-activity:${tenantId}`)
+            .channel(`chat-user-status:${tenantId}`)
             .on(
                 'postgres_changes',
                 {
                     event: '*',
                     schema: 'public',
-                    table: 'user_activity',
+                    table: 'chat_user_status',
                     filter: `tenant_id=eq.${tenantId}`
                 },
                 (payload) => {
@@ -88,7 +88,7 @@ export const UserList: React.FC<UserListProps> = ({
                         const newActivity = payload.new as any;
                         setUserStatuses(prev => ({
                             ...prev,
-                            [newActivity.employee_id]: newActivity.status
+                            [newActivity.user_id]: newActivity.status
                         }));
                     }
                 }

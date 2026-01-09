@@ -54,31 +54,53 @@ export const useChat = (channelId: string | null, userId: string) => {
                     const messageData = payload.new as any;
 
                     if (messageData && messageData.sender_id) {
-                        // Manually fetch sender
-                        const { data: senderData } = await supabase
-                            .from('employees')
-                            .select('id, name, emp_id')
-                            .eq('id', messageData.sender_id)
-                            .maybeSingle();
+                        // 1. Immediately add message with placeholder/cached sender to avoid lag
+                        const tempSender = {
+                            id: messageData.sender_id,
+                            name: '...', // Placeholder, will be updated momentarily
+                            emp_id: ''
+                        };
 
                         const fullMessage: ChatMessage = {
                             ...messageData,
-                            sender: senderData || {
-                                id: messageData.sender_id,
-                                name: 'Unknown User',
-                                emp_id: ''
-                            }
+                            sender: tempSender
                         };
+
                         setMessages((prev) => {
-                            // Deduplicate: check if message already exists
                             if (prev.some(msg => msg.id === fullMessage.id)) {
                                 return prev;
                             }
                             return [...prev, fullMessage];
                         });
+
+                        // 2. Fetch real sender details asynchronously
+                        try {
+                            const { data: senderData } = await supabase
+                                .from('employees')
+                                .select('id, name, emp_id, avatar_url')
+                                .eq('id', messageData.sender_id)
+                                .maybeSingle();
+
+                            if (senderData) {
+                                // 3. Update the message with real sender info
+                                setMessages((prev) =>
+                                    prev.map(msg =>
+                                        msg.id === messageData.id
+                                            ? {
+                                                ...msg,
+                                                sender: {
+                                                    ...senderData,
+                                                    avatarUrl: senderData.avatar_url
+                                                }
+                                            }
+                                            : msg
+                                    )
+                                );
+                            }
+                        } catch (err) {
+                            console.error('Error fetching sender details:', err);
+                        }
                     }
-
-
                 }
             )
             .on(

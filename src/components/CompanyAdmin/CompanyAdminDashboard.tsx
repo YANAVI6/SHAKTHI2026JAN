@@ -75,7 +75,7 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
 
   // Fetch tenant name
   const { tenantName } = useTenantName(user?.tenantId);
-  const { unreadCounts } = useChannels(user?.id || '');
+  const { unreadCounts } = useChannels(user?.id || '', user?.tenantId || '');
   const totalUnreadMessages = Object.values(unreadCounts).reduce((a: number, b: number) => a + b, 0);
 
   React.useEffect(() => {

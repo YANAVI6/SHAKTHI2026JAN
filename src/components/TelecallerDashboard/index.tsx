@@ -8,7 +8,11 @@ import {
   User as UserIcon,
   Briefcase,
   FileText,
-  BarChart3
+  BarChart3,
+  FileSpreadsheet,
+  Download,
+  Upload,
+  AlertCircle
 } from 'lucide-react';
 
 // Services & Global State
@@ -50,6 +54,8 @@ import { PTPNotificationManager } from './PTPNotificationManager';
 import ToastContainer from './ToastContainer';
 import { useToast } from './hooks';
 import { PerformanceMetrics, TelecallerTarget } from '../../services/telecallerTargetService';
+import { BreakManager } from './BreakManager';
+import { CallResponseUploadModal } from './CallResponseUploadModal';
 
 // Types & Utilities
 import { CustomerCase as DashboardCustomerCase } from './types';
@@ -66,6 +72,7 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
   const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isBulkUploadOpen, setIsBulkUploadOpen] = useState(false);
 
   // Profile State
   const [profileData, setProfileData] = useState({
@@ -166,7 +173,7 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
 
   const { showNotification } = useNotification();
   const { tenantName } = useTenantName(user.tenantId || '');
-  const { unreadCounts } = useChannels(user.id);
+  const { unreadCounts } = useChannels(user.id, user.tenantId || '');
   const totalUnreadMessages = Object.values(unreadCounts).reduce((sum, count) => sum + count, 0);
   const toast = useToast();
 
@@ -323,6 +330,7 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
   const menuItems = [
     { name: 'My Workboard', icon: Briefcase, active: activeSection === 'dashboard', onClick: () => setActiveSection('dashboard') },
     { name: 'My Cases', icon: FileText, active: activeSection === 'cases', onClick: () => setActiveSection('cases') },
+    { name: 'Bulk Call Update', icon: FileSpreadsheet, active: activeSection === 'bulk-upload', onClick: () => setActiveSection('bulk-upload') },
     { name: 'Reports', icon: BarChart3, active: activeSection === 'reports', onClick: () => setActiveSection('reports') },
     { name: 'PTP Alerts', icon: Bell, active: activeSection === 'ptp-alerts', onClick: () => setActiveSection('ptp-alerts') },
     { name: 'Callback Alerts', icon: PhoneCall, active: activeSection === 'callback-alerts', onClick: () => setActiveSection('callback-alerts') },
@@ -462,6 +470,60 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
                 }
               }}
             />
+          </div>
+        );
+
+      case 'bulk-upload':
+        return (
+          <div className="space-y-6">
+            <div className="bg-white rounded-3xl shadow-xl overflow-hidden border border-gray-100 p-8">
+              <div className="flex items-center gap-6 mb-8">
+                <div className="p-4 bg-indigo-100 text-indigo-600 rounded-2xl">
+                  <FileSpreadsheet className="w-8 h-8" />
+                </div>
+                <div>
+                  <h3 className="text-2xl font-bold text-gray-900">Bulk Call Updates</h3>
+                  <p className="text-gray-600 mt-1">Efficiency boost! Update multiple call records at once using Excel.</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
+                <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 hover:shadow-md transition-shadow">
+                  <h4 className="font-bold text-gray-900 mb-2">Step 1: Get Demo File</h4>
+                  <p className="text-sm text-gray-600 mb-4">Ensure your data matches our format for seamless updates.</p>
+                  <button
+                    onClick={() => setIsBulkUploadOpen(true)}
+                    className="flex items-center gap-2 text-indigo-600 font-bold hover:text-indigo-800 transition-colors"
+                  >
+                    <Download className="w-4 h-4" />
+                    Open Upload Wizard
+                  </button>
+                </div>
+                <div className="p-6 bg-gray-50 rounded-2xl border border-gray-100 hover:shadow-md transition-shadow">
+                  <h4 className="font-bold text-gray-900 mb-2">Step 2: Upload & Verify</h4>
+                  <p className="text-sm text-gray-600 mb-4">Our system will verify Loan IDs before applying any changes.</p>
+                  <button
+                    onClick={() => setIsBulkUploadOpen(true)}
+                    className="flex items-center gap-2 px-6 py-2 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 transition-all shadow-lg shadow-indigo-200"
+                  >
+                    <Upload className="w-4 h-4" />
+                    Start Bulk Update
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-6 border border-amber-100 bg-amber-50 rounded-2xl">
+                <div className="flex gap-3">
+                  <AlertCircle className="w-5 h-5 text-amber-600 mt-0.5" />
+                  <div>
+                    <h5 className="font-bold text-amber-900">Important Note</h5>
+                    <p className="text-sm text-amber-800 mt-1">
+                      You can only update cases that are currently assigned to you. Loan IDs belonging to other telecallers will be skipped for security.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
         );
 
@@ -719,6 +781,7 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
         onNotificationClick={() => setActiveSection('notifications')}
         headerActions={
           <div className="flex items-center space-x-4">
+            <BreakManager />
             <div className="w-48">
               <TeamSelector
                 teams={teams}
@@ -729,6 +792,7 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
             </div>
             <AlertButton
               userId={user.id}
+              teamId={selectedTeamId}
               onClick={(alerts: AlertCase[]) => {
                 setCurrentAlerts(alerts);
                 setIsAlertsDrawerOpen(true);
@@ -789,28 +853,30 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
             }
           }}
         />
-      </Layout>
+      </Layout >
 
       {/* Case Details Modal */}
-      {selectedCase && (
-        <CaseDetailsModal
-          isOpen={isCaseDetailsOpen}
-          onClose={() => {
-            setIsCaseDetailsOpen(false);
-            setSelectedCase(null);
-          }}
-          caseData={selectedCase}
-          user={{
-            id: user.id || '',
-            empId: user.empId || '',
-            tenantId: user.tenantId || ''
-          }}
-          onCaseUpdated={() => {
-            loadCases(true);
-            loadDashboardStats();
-          }}
-        />
-      )}
+      {
+        selectedCase && (
+          <CaseDetailsModal
+            isOpen={isCaseDetailsOpen}
+            onClose={() => {
+              setIsCaseDetailsOpen(false);
+              setSelectedCase(null);
+            }}
+            caseData={selectedCase}
+            user={{
+              id: user.id || '',
+              empId: user.empId || '',
+              tenantId: user.tenantId || ''
+            }}
+            onCaseUpdated={() => {
+              loadCases(true);
+              loadDashboardStats();
+            }}
+          />
+        )
+      }
 
       {/* Call Log Modal */}
       <CallLogModal
@@ -983,12 +1049,27 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
         onClose={() => setIsNotificationsOpen(false)}
       />
 
+      {/* Bulk Upload Modal */}
+      <CallResponseUploadModal
+        isOpen={isBulkUploadOpen}
+        onClose={() => setIsBulkUploadOpen(false)}
+        user={{
+          id: user.id || '',
+          tenantId: user.tenantId || '',
+          name: user.name || ''
+        }}
+        onSuccess={() => {
+          loadDashboardStats();
+          loadCases(true);
+        }}
+      />
+
       {/* Toast Container */}
       <ToastContainer
         toasts={toast.toasts}
         onRemoveToast={toast.removeToast}
       />
-    </CelebrationProvider>
+    </CelebrationProvider >
   );
 };
 

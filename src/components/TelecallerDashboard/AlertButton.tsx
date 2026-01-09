@@ -4,20 +4,21 @@ import { AlertService, AlertCase } from '../../services/alertService';
 
 interface AlertButtonProps {
     userId: string;
+    teamId?: string;
     onClick: (alerts: AlertCase[]) => void;
     onStatusChange?: (status: 'RED' | 'YELLOW' | 'GREEN') => void;
 }
 
-export const AlertButton: React.FC<AlertButtonProps> = ({ userId, onClick, onStatusChange }) => {
+export const AlertButton: React.FC<AlertButtonProps> = ({ userId, teamId, onClick, onStatusChange }) => {
     const [status, setStatus] = useState<'RED' | 'YELLOW' | 'GREEN'>('GREEN');
     const [alerts, setAlerts] = useState<AlertCase[]>([]);
     const [loading, setLoading] = useState(true);
 
     const fetchAlerts = useCallback(async () => {
-        if (!userId) return;
+        if (!userId || !teamId) return;
 
         try {
-            const result = await AlertService.getAlerts(userId);
+            const result = await AlertService.getAlerts(userId, teamId);
             setStatus(result.status);
             setAlerts(result.cases);
             if (onStatusChange) {
@@ -28,7 +29,7 @@ export const AlertButton: React.FC<AlertButtonProps> = ({ userId, onClick, onSta
         } finally {
             setLoading(false);
         }
-    }, [userId, onStatusChange]);
+    }, [userId, teamId, onStatusChange]);
 
     useEffect(() => {
         fetchAlerts();

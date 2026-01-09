@@ -103,14 +103,21 @@ export const TelecallerCaseExplorerModal: React.FC<TelecallerCaseExplorerModalPr
     useEffect(() => {
         if (selectedTeamId) {
             const loadTelecallers = async () => {
-                const { data } = await supabase
-                    .from('employees')
-                    .select('id, name')
-                    .eq('team_id', selectedTeamId)
-                    .eq('role', 'Telecaller')
-                    .eq('status', 'active')
-                    .order('name');
-                setTelecallers(data || []);
+                const { data, error } = await supabase
+                    .from('team_telecallers')
+                    .select(`
+                        employees:telecaller_id(id, name)
+                    `)
+                    .eq('team_id', selectedTeamId);
+
+                if (error) {
+                    console.error('Error loading team telecallers:', error);
+                    setTelecallers([]);
+                } else {
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    const employees = data?.map((tt: any) => tt.employees).filter(Boolean) || [];
+                    setTelecallers(employees);
+                }
             };
             loadTelecallers();
         } else {

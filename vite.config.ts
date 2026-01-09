@@ -25,11 +25,6 @@ export default defineConfig({
     minify: 'terser',
     rollupOptions: {
       output: {
-        manualChunks: {
-          'vendor-core': ['react', 'react-dom', 'react-router-dom'],
-          'vendor-ui': ['framer-motion', 'lucide-react', '@radix-ui/react-slot'],
-          'vendor-utils': ['@supabase/supabase-js', 'xlsx'],
-        }
       }
     }
   },

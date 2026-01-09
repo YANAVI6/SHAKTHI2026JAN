@@ -38,6 +38,7 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
   // Step 2: File upload
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadStats, setUploadStats] = useState<{ total: number; uploaded: number }>({ total: 0, uploaded: 0 });
   const [uploadResult, setUploadResult] = useState<{ totalUploaded: number; errors: Array<{ row: number; error: string; data?: unknown }>; autoAssigned?: number; unassigned?: number } | null>(null);
 
   // Error modal
@@ -350,10 +351,20 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
 
       // Upload cases
       setUploadProgress(0);
-      const result = await customerCaseService.createBulkCases(cases, (progress) => {
+      setUploadStats({ total: cases.length, uploaded: 0 });
+
+      // Small delay to ensure the progress overlay renders before starting upload
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const result = await customerCaseService.createBulkCases(cases, (progress: number, uploaded?: number) => {
         setUploadProgress(progress);
+        if (uploaded !== undefined) {
+          setUploadStats({ total: cases.length, uploaded });
+        }
       });
+
       setUploadProgress(100);
+      setUploadStats({ total: cases.length, uploaded: cases.length });
       setUploadResult(result);
 
       if (result.errors.length === 0) {
@@ -802,28 +813,54 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
               {/* Upload Progress Overlay */}
               {isLoading && (
                 <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                  <div className="bg-white rounded-2xl p-8 max-w-md w-full mx-4 shadow-2xl border border-gray-100 flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
-                    <div className="relative w-20 h-20 mb-6">
+                  <div className="bg-white rounded-2xl p-8 max-w-lg w-full mx-4 shadow-2xl border border-gray-100 flex flex-col items-center text-center animate-in zoom-in-95 duration-300">
+                    {/* Animated Icon */}
+                    <div className="relative w-24 h-24 mb-6">
                       <div className="absolute inset-0 border-4 border-gray-100 rounded-full"></div>
                       <div className="absolute inset-0 border-4 border-blue-600 rounded-full border-t-transparent animate-spin"></div>
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <span className="text-xl font-bold text-blue-600">{uploadProgress}%</span>
+                        <Upload className="w-10 h-10 text-blue-600 animate-pulse" />
                       </div>
                     </div>
 
-                    <h3 className="text-xl font-bold text-gray-900 mb-2">Uploading Cases...</h3>
+                    <h3 className="text-2xl font-bold text-gray-900 mb-2">Uploading Cases...</h3>
                     <p className="text-gray-500 mb-6">
                       Please wait while we process and upload your cases. Do not close this window.
                     </p>
 
-                    <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-blue-500 to-indigo-600 transition-all duration-300 ease-out"
-                        style={{ width: `${uploadProgress}%` }}
-                      />
+                    {/* Statistics Cards */}
+                    <div className="grid grid-cols-3 gap-4 w-full mb-6">
+                      <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                        <div className="text-3xl font-bold text-blue-600">{uploadStats.total}</div>
+                        <div className="text-xs text-blue-700 font-medium mt-1">Total Cases</div>
+                      </div>
+                      <div className="bg-green-50 rounded-xl p-4 border border-green-100">
+                        <div className="text-3xl font-bold text-green-600 tabular-nums">{uploadStats.uploaded}</div>
+                        <div className="text-xs text-green-700 font-medium mt-1">Uploaded</div>
+                      </div>
+                      <div className="bg-orange-50 rounded-xl p-4 border border-orange-100">
+                        <div className="text-3xl font-bold text-orange-600 tabular-nums">{uploadStats.total - uploadStats.uploaded}</div>
+                        <div className="text-xs text-orange-700 font-medium mt-1">Pending</div>
+                      </div>
                     </div>
-                    <div className="mt-2 text-sm text-gray-400 font-medium">
-                      {uploadProgress < 100 ? 'Processing...' : 'Finalizing...'}
+
+                    {/* Progress Bar */}
+                    <div className="w-full">
+                      <div className="flex justify-between items-center mb-2">
+                        <span className="text-sm font-medium text-gray-700">Progress</span>
+                        <span className="text-sm font-bold text-blue-600">{uploadProgress}%</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden shadow-inner">
+                        <div
+                          className="h-full bg-gradient-to-r from-blue-500 via-blue-600 to-indigo-600 transition-all duration-500 ease-out relative overflow-hidden"
+                          style={{ width: `${uploadProgress}%` }}
+                        >
+                          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-30 animate-shimmer"></div>
+                        </div>
+                      </div>
+                      <div className="mt-3 text-sm text-gray-500 font-medium">
+                        {uploadProgress < 100 ? `Processing ${uploadStats.uploaded} of ${uploadStats.total} cases...` : 'Finalizing upload...'}
+                      </div>
                     </div>
                   </div>
                 </div>

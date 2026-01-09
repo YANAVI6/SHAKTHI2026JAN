@@ -1,11 +1,12 @@
 import React from 'react';
-import { Hash, Lock, Users, MessageCircle } from 'lucide-react';
+import { Hash, Lock, Users, MessageCircle, Trash2 } from 'lucide-react';
 import { ChatChannel } from '../../services/chatService';
 
 interface ChannelListProps {
     channels: ChatChannel[];
     selectedChannelId: string | null;
     onSelectChannel: (channelId: string) => void;
+    onDeleteChannel: (channelId: string) => void;
     isLoading: boolean;
     unreadCounts: Record<string, number>;
 }
@@ -14,6 +15,7 @@ export const ChannelList: React.FC<ChannelListProps> = ({
     channels,
     selectedChannelId,
     onSelectChannel,
+    onDeleteChannel,
     isLoading,
     unreadCounts
 }) => {
@@ -59,43 +61,59 @@ export const ChannelList: React.FC<ChannelListProps> = ({
                 ) : (
                     <div className="space-y-0.5">
                         {channels.map((channel) => (
-                            <button
-                                key={channel.id}
-                                onClick={() => onSelectChannel(channel.id)}
-                                className={`w-full flex items-center px-3 py-2.5 rounded-xl transition-all duration-200 group relative ${selectedChannelId === channel.id
-                                    ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
-                                    : 'hover:bg-purple-50 text-gray-600 hover:text-purple-700'
-                                    }`}
-                            >
-                                {selectedChannelId === channel.id && (
-                                    <div className="absolute left-0 w-1 h-4 bg-white rounded-r-full" />
-                                )}
-                                <div className={`mr-3 p-1.5 rounded-lg transition-colors ${selectedChannelId === channel.id
-                                    ? 'bg-white/20'
-                                    : 'bg-gray-100 group-hover:bg-purple-100'
-                                    }`}>
-                                    {channel.avatarUrl ? (
-                                        <img
-                                            src={channel.avatarUrl}
-                                            alt={channel.name}
-                                            className="w-4 h-4 rounded-full object-cover"
-                                        />
-                                    ) : (
-                                        getChannelIcon(channel.type)
+                            <div key={channel.id} className="relative group">
+                                <button
+                                    onClick={() => onSelectChannel(channel.id)}
+                                    className={`w-full flex items-center px-3 py-2.5 rounded-xl transition-all duration-200 relative ${selectedChannelId === channel.id
+                                        ? 'bg-purple-600 text-white shadow-md shadow-purple-600/20'
+                                        : 'hover:bg-purple-50 text-gray-600 hover:text-purple-700'
+                                        }`}
+                                >
+                                    {selectedChannelId === channel.id && (
+                                        <div className="absolute left-0 w-1 h-4 bg-white rounded-r-full" />
                                     )}
-                                </div>
-                                <span className="flex-1 text-left text-sm font-semibold tracking-tight truncate">
-                                    {channel.name}
-                                </span>
-                                {unreadCounts[channel.id] > 0 && (
-                                    <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${selectedChannelId === channel.id
-                                        ? 'bg-white text-purple-600'
-                                        : 'bg-red-500 text-white'
+                                    <div className={`mr-3 p-1.5 rounded-lg transition-colors ${selectedChannelId === channel.id
+                                        ? 'bg-white/20'
+                                        : 'bg-gray-100 group-hover:bg-purple-100'
                                         }`}>
-                                        {unreadCounts[channel.id] > 99 ? '99+' : unreadCounts[channel.id]}
+                                        {channel.avatarUrl ? (
+                                            <img
+                                                src={channel.avatarUrl}
+                                                alt={channel.name}
+                                                className="w-4 h-4 rounded-full object-cover"
+                                            />
+                                        ) : (
+                                            getChannelIcon(channel.type)
+                                        )}
+                                    </div>
+                                    <span className="flex-1 text-left text-sm font-semibold tracking-tight truncate pr-6">
+                                        {channel.name}
                                     </span>
+                                    {unreadCounts[channel.id] > 0 && (
+                                        <span className={`ml-2 text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center ${selectedChannelId === channel.id
+                                            ? 'bg-white text-purple-600'
+                                            : 'bg-red-500 text-white'
+                                            }`}>
+                                            {unreadCounts[channel.id] > 99 ? '99+' : unreadCounts[channel.id]}
+                                        </span>
+                                    )}
+                                </button>
+                                {channel.type !== 'general' && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onDeleteChannel(channel.id);
+                                        }}
+                                        className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg transition-all duration-200 opacity-0 group-hover:opacity-100 ${selectedChannelId === channel.id
+                                            ? 'text-white/70 hover:text-white hover:bg-white/20'
+                                            : 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+                                            }`}
+                                        title="Delete channel"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
                                 )}
-                            </button>
+                            </div>
                         ))}
                     </div>
                 )}

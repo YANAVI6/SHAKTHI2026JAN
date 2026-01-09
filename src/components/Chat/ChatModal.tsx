@@ -6,7 +6,6 @@ import { MessageInput } from './MessageInput';
 import { useAuth } from '../../contexts/AuthContext';
 import { useChannels } from '../../hooks/useChannels';
 import { useChat } from '../../hooks/useChat';
-import { ChatService } from '../../services/chatService';
 import { CreateChannelModal } from './modals/CreateChannelModal';
 import { DirectMessageModal } from './modals/DirectMessageModal';
 import { Plus, MessageCircle } from 'lucide-react';
@@ -19,7 +18,7 @@ interface ChatModalProps {
 export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose }) => {
     const { user } = useAuth();
     const [selectedChannelId, setSelectedChannelId] = useState<string | null>(null);
-    const { channels, isLoading: channelsLoading, unreadCounts, markAsRead } = useChannels(user?.id || '');
+    const { channels, isLoading: channelsLoading, unreadCounts, markAsRead } = useChannels(user?.id || '', user?.tenantId || '');
     const { messages, sendMessage, isLoading: messagesLoading } = useChat(
         selectedChannelId,
         user?.id || ''
@@ -34,12 +33,6 @@ export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose }) => {
         }
     }, [selectedChannelId, markAsRead]);
 
-    // Update user status to online when modal opens
-    React.useEffect(() => {
-        if (isOpen && user?.id && user?.tenantId) {
-            ChatService.updateUserStatus(user.id, user.tenantId, 'online');
-        }
-    }, [isOpen, user?.id, user?.tenantId]);
 
     if (!isOpen) return null;
 
@@ -100,6 +93,7 @@ export const ChatModal: React.FC<ChatModalProps> = ({ isOpen, onClose }) => {
                                 channels={channels}
                                 selectedChannelId={selectedChannelId}
                                 onSelectChannel={handleChannelSelect}
+                                onDeleteChannel={() => { }} // Not implemented in modal yet
                                 isLoading={channelsLoading}
                                 unreadCounts={unreadCounts}
                             />
