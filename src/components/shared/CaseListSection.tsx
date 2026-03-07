@@ -25,9 +25,11 @@ interface CaseListSectionProps {
         tenantId?: string;
     };
     onCaseClick?: (caseItem: CustomerCase) => void;
+    teamId?: string;
+    telecallerId?: string;
 }
 
-export const CaseListSection: React.FC<CaseListSectionProps> = ({ user, onCaseClick }) => {
+export const CaseListSection: React.FC<CaseListSectionProps> = ({ user, onCaseClick, teamId, telecallerId }) => {
     const [cases, setCases] = useState<CustomerCase[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -35,10 +37,21 @@ export const CaseListSection: React.FC<CaseListSectionProps> = ({ user, onCaseCl
     const [telecallers, setTelecallers] = useState<Employee[]>([]);
     const [filteredTelecallers, setFilteredTelecallers] = useState<Employee[]>([]);
     const [filters, setFilters] = useState({
-        teamId: 'all',
-        telecallerId: 'all',
+        teamId: teamId || 'all',
+        telecallerId: telecallerId || 'all',
         callResponse: 'all'
     });
+
+    // Update filters when props change
+    useEffect(() => {
+        if (teamId || telecallerId) {
+            setFilters(prev => ({
+                ...prev,
+                teamId: teamId || 'all',
+                telecallerId: telecallerId || 'all'
+            }));
+        }
+    }, [teamId, telecallerId]);
 
     // Simple Details State
     const [selectedCaseForDetails, setSelectedCaseForDetails] = useState<CustomerCase | null>(null);

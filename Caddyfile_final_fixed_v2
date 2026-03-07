@@ -1,0 +1,41 @@
+shakthisolution.cloud {
+    # 1. Supabase APIs (Kong Gateway)
+    handle /rest/v1/* {
+        reverse_proxy localhost:8000
+    }
+    handle /auth/v1/* {
+        reverse_proxy localhost:8000
+    }
+    handle /realtime/v1/* {
+        reverse_proxy localhost:8000
+    }
+    handle /storage/v1/* {
+        reverse_proxy localhost:8000
+    }
+
+    # 2. CRM Frontend (Nginx)
+    handle {
+        reverse_proxy localhost:8181
+    }
+}
+
+srv1255289.hstgr.cloud {
+    # Supabase APIs (Kong Gateway) - Needed for Studio to function
+    handle /rest/v1/* {
+        reverse_proxy localhost:8000
+    }
+    handle /auth/v1/* {
+        reverse_proxy localhost:8000
+    }
+    handle /realtime/v1/* {
+        reverse_proxy localhost:8000
+    }
+    handle /storage/v1/* {
+        reverse_proxy localhost:8000
+    }
+
+    # Supabase Studio (Dashboard)
+    handle {
+        reverse_proxy 172.18.0.7:3000
+    }
+}

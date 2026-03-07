@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Phone, CheckCircle, Clock, Activity, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff } from 'lucide-react';
+import { Users, Phone, CheckCircle, Clock, Activity, RefreshCw, ChevronDown, ChevronUp, Eye, EyeOff, Edit, Download } from 'lucide-react';
 import { useAuth } from '../../../contexts/AuthContext';
-// import { supabase } from '../../../lib/supabase'; // Unused
+import { supabase } from '../../../lib/supabase';
 import { TeamService } from '../../../services/teamService';
 import { customerCaseService } from '../../../services/customerCaseService';
 
@@ -41,7 +41,11 @@ interface TeamStats {
     telecallers: TelecallerStats[];
 }
 
-export const LiveMonitoring: React.FC = () => {
+interface LiveMonitoringProps {
+    onCaseClick?: (caseData: any) => void;
+}
+
+export const LiveMonitoring: React.FC<LiveMonitoringProps> = ({ onCaseClick }) => {
     const { user } = useAuth();
     const [teamStats, setTeamStats] = useState<TeamStats[]>([]);
     const [loading, setLoading] = useState(true);
@@ -147,6 +151,7 @@ export const LiveMonitoring: React.FC = () => {
             case 'RTP': return 'bg-red-100 text-red-800';
             case 'BPTP': return 'bg-orange-100 text-orange-800';
             case 'CALL_BACK': return 'bg-purple-100 text-purple-800';
+            case 'DISPUTE': return 'bg-red-100 text-red-800';
             default: return 'bg-gray-100 text-gray-800';
         }
     };
@@ -171,22 +176,22 @@ export const LiveMonitoring: React.FC = () => {
     }
 
     return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
+        <div className="space-y-4 md:space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-                        <Activity className="w-6 h-6 text-blue-600" />
+                    <h2 className="text-xl md:text-2xl font-bold text-gray-900 flex items-center gap-2">
+                        <Activity className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
                         Live Monitoring
                     </h2>
                     <p className="text-sm text-gray-600 mt-1">
                         Real-time telecaller activity and case progress for today
                     </p>
                 </div>
-                <div className="flex items-center gap-4">
-                    <div className="text-sm text-gray-600">
+                <div className="flex flex-wrap items-center gap-3 md:gap-4">
+                    <div className="text-xs md:text-sm text-gray-600">
                         Last updated: {lastUpdated.toLocaleTimeString()}
                     </div>
-                    <label className="flex items-center gap-2 text-sm">
+                    <label className="flex items-center gap-2 text-xs md:text-sm">
                         <input
                             type="checkbox"
                             checked={autoRefresh}
@@ -198,68 +203,68 @@ export const LiveMonitoring: React.FC = () => {
                     <button
                         onClick={loadLiveData}
                         disabled={loading}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+                        className="flex items-center gap-2 px-3 py-1.5 md:px-4 md:py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 text-xs md:text-sm"
                     >
-                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+                        <RefreshCw className={`w-3.5 h-3.5 md:w-4 md:h-4 ${loading ? 'animate-spin' : ''}`} />
                         Refresh
                     </button>
                 </div>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 md:gap-4">
+                <div className="bg-white p-4 md:p-6 rounded-xl border border-gray-200 shadow-sm">
                     <div className="flex items-center justify-between mb-2">
                         <div className="p-2 bg-blue-50 rounded-lg">
-                            <Users className="w-6 h-6 text-blue-600" />
+                            <Users className="w-5 h-5 md:w-6 md:h-6 text-blue-600" />
                         </div>
                     </div>
-                    <h3 className="text-2xl font-bold text-gray-900">{totalTelecallers}</h3>
-                    <p className="text-sm text-gray-600">Total Telecallers</p>
+                    <h3 className="text-xl md:text-2xl font-bold text-gray-900">{totalTelecallers}</h3>
+                    <p className="text-xs md:text-sm text-gray-600">Total Telecallers</p>
                     <p className="text-xs text-green-600 mt-1">{onlineTelecallers} online now</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="bg-white p-4 md:p-6 rounded-xl border border-gray-200 shadow-sm">
                     <div className="flex items-center justify-between mb-2">
                         <div className="p-2 bg-purple-50 rounded-lg">
-                            <Phone className="w-6 h-6 text-purple-600" />
+                            <Phone className="w-5 h-5 md:w-6 md:h-6 text-purple-600" />
                         </div>
                     </div>
-                    <h3 className="text-2xl font-bold text-gray-900">{totalCases}</h3>
-                    <p className="text-sm text-gray-600">Total Cases</p>
+                    <h3 className="text-xl md:text-2xl font-bold text-gray-900">{totalCases}</h3>
+                    <p className="text-xs md:text-sm text-gray-600">Total Cases</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="bg-white p-4 md:p-6 rounded-xl border border-gray-200 shadow-sm">
                     <div className="flex items-center justify-between mb-2">
                         <div className="p-2 bg-green-50 rounded-lg">
-                            <Activity className="w-6 h-6 text-green-600" />
+                            <Activity className="w-5 h-5 md:w-6 md:h-6 text-green-600" />
                         </div>
                     </div>
-                    <h3 className="text-2xl font-bold text-gray-900">{totalLiveCases}</h3>
-                    <p className="text-sm text-gray-600">Live Cases Today</p>
+                    <h3 className="text-xl md:text-2xl font-bold text-gray-900">{totalLiveCases}</h3>
+                    <p className="text-xs md:text-sm text-gray-600">Live Cases Today</p>
                 </div>
 
-                <div className="bg-white p-6 rounded-xl border border-gray-200 shadow-sm">
+                <div className="bg-white p-4 md:p-6 rounded-xl border border-gray-200 shadow-sm">
                     <div className="flex items-center justify-between mb-2">
                         <div className="p-2 bg-orange-50 rounded-lg">
-                            <Clock className="w-6 h-6 text-orange-600" />
+                            <Clock className="w-5 h-5 md:w-6 md:h-6 text-orange-600" />
                         </div>
                     </div>
-                    <h3 className="text-2xl font-bold text-gray-900">
+                    <h3 className="text-xl md:text-2xl font-bold text-gray-900">
                         {teamStats.reduce((sum, team) =>
                             sum + team.telecallers.reduce((s, t) => s + t.completedToday, 0), 0
                         )}
                     </h3>
-                    <p className="text-sm text-gray-600">Completed Today</p>
+                    <p className="text-xs md:text-sm text-gray-600">Completed Today</p>
                 </div>
             </div>
 
             <div className="space-y-4">
                 {teamStats.map((team) => (
                     <div key={team.teamId} className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-                        <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
-                            <div className="flex items-center justify-between">
-                                <h3 className="text-lg font-semibold text-gray-900">{team.teamName}</h3>
-                                <div className="flex items-center gap-4 text-sm">
+                        <div className="bg-gray-50 px-4 py-3 md:px-6 md:py-4 border-b border-gray-200">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                                <h3 className="text-base md:text-lg font-semibold text-gray-900">{team.teamName}</h3>
+                                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs md:text-sm">
                                     <span className="text-gray-600">
                                         Total Cases: <span className="font-semibold text-gray-900">{team.totalCases}</span>
                                     </span>
@@ -277,164 +282,265 @@ export const LiveMonitoring: React.FC = () => {
                             <table className="w-full">
                                 <thead className="bg-gray-50 border-b border-gray-200">
                                     <tr>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Telecaller</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cases</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Live Cases</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed Today</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Last Activity</th>
-                                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
+                                        <th className="px-4 py-3 md:px-6 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Telecaller</th>
+                                        <th className="px-4 py-3 md:px-6 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                        <th className="px-4 py-3 md:px-6 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Total Cases</th>
+                                        <th className="px-4 py-3 md:px-6 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Live Cases</th>
+                                        <th className="px-4 py-3 md:px-6 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completed Today</th>
+                                        <th className="px-4 py-3 md:px-6 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Details</th>
                                     </tr>
                                 </thead>
                                 <tbody className="bg-white divide-y divide-gray-200">
                                     {team.telecallers.map((telecaller) => (
                                         <React.Fragment key={telecaller.id}>
                                             <tr className="hover:bg-gray-50 transition-colors">
-                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                <td className="px-4 py-3 md:px-6 whitespace-nowrap">
                                                     <div className="flex items-center">
-                                                        <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold text-sm">
+                                                        <div className="w-7 h-7 md:w-8 md:h-8 rounded-full bg-blue-100 flex items-center justify-center text-blue-600 font-semibold text-xs md:text-sm">
                                                             {telecaller.name.charAt(0)}
                                                         </div>
-                                                        <div className="ml-3">
+                                                        <div className="ml-2 md:ml-3">
                                                             <p className="text-sm font-medium text-gray-900">{telecaller.name}</p>
                                                         </div>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getStatusColor(telecaller.status)}`}>
-                                                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${telecaller.status === 'Online' ? 'bg-green-600' :
-                                                            telecaller.status === 'Break' ? 'bg-orange-600' :
-                                                                telecaller.status === 'Idle' ? 'bg-yellow-600' :
-                                                                    'bg-gray-600'
-                                                            }`}></span>
+                                                <td className="px-4 py-3 md:px-6 whitespace-nowrap">
+                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(telecaller.status)}`}>
+                                                        <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${telecaller.status === 'Online' ? 'bg-green-400' : telecaller.status === 'Idle' ? 'bg-yellow-400' : 'bg-gray-400'}`}></span>
                                                         {telecaller.status}
                                                     </span>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{telecaller.totalCases}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                <td className="px-4 py-3 md:px-6 whitespace-nowrap text-sm text-gray-900">{telecaller.totalCases}</td>
+                                                <td className="px-4 py-3 md:px-6 whitespace-nowrap">
                                                     <span className="text-sm font-semibold text-green-600">{telecaller.liveCases}</span>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                <td className="px-4 py-3 md:px-6 whitespace-nowrap">
                                                     <div className="flex items-center gap-1">
                                                         <CheckCircle className="w-4 h-4 text-green-500" />
                                                         <span className="text-sm text-gray-900">{telecaller.completedToday}</span>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{telecaller.lastActivity}</td>
-                                                <td className="px-6 py-4 whitespace-nowrap">
-                                                    {telecaller.casesDetails.length > 0 && (
-                                                        <button
-                                                            onClick={() => toggleTelecaller(telecaller.id)}
-                                                            className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-sm font-medium"
-                                                        >
-                                                            {expandedTelecallers.has(telecaller.id) ? (
-                                                                <>
-                                                                    <ChevronUp className="w-4 h-4" />
-                                                                    Hide
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <ChevronDown className="w-4 h-4" />
-                                                                    View Cases
-                                                                </>
-                                                            )}
-                                                        </button>
-                                                    )}
+                                                <td className="px-4 py-3 md:px-6 whitespace-nowrap">
+                                                    <div className="flex items-center gap-2">
+                                                        {telecaller.casesDetails.length > 0 && (
+                                                            <>
+                                                                <button
+                                                                    onClick={() => toggleTelecaller(telecaller.id)}
+                                                                    className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-sm font-medium"
+                                                                >
+                                                                    {expandedTelecallers.has(telecaller.id) ? (
+                                                                        <>
+                                                                            <ChevronUp className="w-4 h-4" />
+                                                                            <span className="hidden sm:inline">Hide</span>
+                                                                        </>
+                                                                    ) : (
+                                                                        <>
+                                                                            <ChevronDown className="w-4 h-4" />
+                                                                            <span className="hidden sm:inline">View Cases</span>
+                                                                        </>
+                                                                    )}
+                                                                </button>
+                                                                <button
+                                                                    onClick={async () => {
+                                                                        try {
+                                                                            if (telecaller.casesDetails.length === 0) {
+                                                                                alert('No cases worked today');
+                                                                                return;
+                                                                            }
+
+                                                                            // Get case IDs from today's worked cases
+                                                                            const caseIds = telecaller.casesDetails.map((c: any) => c.id);
+
+                                                                            // Fetch full call logs for these cases from today
+                                                                            const today = new Date();
+                                                                            today.setHours(0, 0, 0, 0);
+
+                                                                            const { data: callLogs } = await supabase
+                                                                                .from('case_call_logs')
+                                                                                .select('*')
+                                                                                .in('case_id', caseIds)
+                                                                                .gte('created_at', today.toISOString())
+                                                                                .order('created_at', { ascending: true });
+
+                                                                            // Group call logs by case
+                                                                            const logsByCase = new Map();
+                                                                            callLogs?.forEach((log: any) => {
+                                                                                if (!logsByCase.has(log.case_id)) {
+                                                                                    logsByCase.set(log.case_id, []);
+                                                                                }
+                                                                                logsByCase.get(log.case_id).push(log);
+                                                                            });
+
+                                                                            // Create detailed CSV rows
+                                                                            const rows: string[] = [];
+                                                                            telecaller.casesDetails.forEach((caseDetail: any) => {
+                                                                                const logs = logsByCase.get(caseDetail.id) || [];
+
+                                                                                if (logs.length === 0) {
+                                                                                    // Case with no calls today
+                                                                                    rows.push([
+                                                                                        caseDetail.loanId || '',
+                                                                                        caseDetail.customerName || '',
+                                                                                        caseDetail.mobileNo || '',
+                                                                                        '',
+                                                                                        '',
+                                                                                        '',
+                                                                                        '',
+                                                                                        ''
+                                                                                    ].join(','));
+                                                                                } else {
+                                                                                    // One row per call log
+                                                                                    logs.forEach((log: any, index: number) => {
+                                                                                        rows.push([
+                                                                                            index === 0 ? caseDetail.loanId || '' : '',
+                                                                                            index === 0 ? caseDetail.customerName || '' : '',
+                                                                                            index === 0 ? caseDetail.mobileNo || '' : '',
+                                                                                            log.call_status || '',
+                                                                                            `"${(log.call_notes || '').replace(/"/g, '""')}"`,
+                                                                                            log.amount_collected || '',
+                                                                                            log.ptp_datetime ? new Date(log.ptp_datetime).toLocaleString() : '',
+                                                                                            new Date(log.created_at).toLocaleTimeString()
+                                                                                        ].join(','));
+                                                                                    });
+                                                                                }
+                                                                            });
+
+                                                                            const csvContent = [
+                                                                                ['Loan ID', 'Customer Name', 'Mobile', 'Call Status', 'Remarks', 'Amount Collected', 'PTP Date', 'Call Time'].join(','),
+                                                                                ...rows
+                                                                            ].join('\n');
+
+                                                                            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                                                                            const url = window.URL.createObjectURL(blob);
+                                                                            const a = document.createElement('a');
+                                                                            a.href = url;
+                                                                            a.download = `${telecaller.name}_today_calls_${new Date().toISOString().split('T')[0]}.csv`;
+                                                                            a.click();
+                                                                            window.URL.revokeObjectURL(url);
+                                                                        } catch (error) {
+                                                                            console.error('Error downloading cases:', error);
+                                                                            alert('Failed to download cases. Please try again.');
+                                                                        }
+                                                                    }}
+                                                                    className="text-green-600 hover:text-green-800 flex items-center gap-1 text-sm font-medium"
+                                                                    title="Download Today's Cases with Call Logs"
+                                                                >
+                                                                    <Download className="w-4 h-4" />
+                                                                    <span className="hidden sm:inline">Download</span>
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                             {expandedTelecallers.has(telecaller.id) && telecaller.casesDetails.length > 0 && (
                                                 <tr>
-                                                    <td colSpan={7} className="px-6 py-4 bg-gray-50">
+                                                    <td colSpan={6} className="px-4 py-3 md:px-6 bg-gray-50">
                                                         <div className="space-y-2">
-                                                            <h4 className="text-sm font-semibold text-gray-700 mb-3">
+                                                            <h4 className="text-sm font-semibold text-gray-700 mb-2 md:mb-3">
                                                                 Cases Worked Today ({telecaller.casesDetails.length})
                                                             </h4>
                                                             <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
-                                                                <table className="w-full text-sm">
-                                                                    <thead className="bg-gray-100">
-                                                                        <tr>
-                                                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Loan ID</th>
-                                                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Customer Name</th>
-                                                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Mobile</th>
-                                                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Call Status</th>
-                                                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Last Call</th>
-                                                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Calls Today</th>
-                                                                            <th className="px-4 py-2 text-left text-xs font-medium text-gray-600">Actions</th>
-                                                                        </tr>
-                                                                    </thead>
-                                                                    <tbody className="divide-y divide-gray-200">
-                                                                        {telecaller.casesDetails.map((caseDetail) => (
-                                                                            <React.Fragment key={caseDetail.id}>
-                                                                                <tr className="hover:bg-gray-50">
-                                                                                    <td className="px-4 py-2 font-medium text-gray-900">{caseDetail.loanId}</td>
-                                                                                    <td className="px-4 py-2 text-gray-700">{caseDetail.customerName}</td>
-                                                                                    <td className="px-4 py-2 text-gray-600">{caseDetail.mobileNo}</td>
-                                                                                    <td className="px-4 py-2">
-                                                                                        <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getCallStatusColor(caseDetail.callStatus)}`}>
-                                                                                            {caseDetail.callStatus}
-                                                                                        </span>
-                                                                                    </td>
-                                                                                    <td className="px-4 py-2 text-gray-600">{caseDetail.lastCallTime}</td>
-                                                                                    <td className="px-4 py-2 text-center">
-                                                                                        <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold">
-                                                                                            {caseDetail.callCount}
-                                                                                        </span>
-                                                                                    </td>
-                                                                                    <td className="px-4 py-2">
-                                                                                        <button
-                                                                                            onClick={() => toggleCase(caseDetail.id)}
-                                                                                            className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-xs"
-                                                                                        >
-                                                                                            {expandedCases.has(caseDetail.id) ? (
-                                                                                                <>
-                                                                                                    <EyeOff className="w-3 h-3" />
-                                                                                                    Hide
-                                                                                                </>
-                                                                                            ) : (
-                                                                                                <>
-                                                                                                    <Eye className="w-3 h-3" />
-                                                                                                    Details
-                                                                                                </>
-                                                                                            )}
-                                                                                        </button>
-                                                                                    </td>
-                                                                                </tr>
-                                                                                {expandedCases.has(caseDetail.id) && (
-                                                                                    <tr>
-                                                                                        <td colSpan={7} className="px-4 py-3 bg-blue-50">
-                                                                                            <div className="grid grid-cols-3 gap-4 text-xs">
-                                                                                                <div>
-                                                                                                    <span className="font-semibold text-gray-700">Case Status:</span>
-                                                                                                    <span className="ml-2 text-gray-900">{caseDetail.caseStatus || 'N/A'}</span>
-                                                                                                </div>
-                                                                                                <div>
-                                                                                                    <span className="font-semibold text-gray-700">DPD:</span>
-                                                                                                    <span className="ml-2 text-gray-900">{caseDetail.dpd !== undefined ? caseDetail.dpd : 'N/A'}</span>
-                                                                                                </div>
-                                                                                                <div>
-                                                                                                    <span className="font-semibold text-gray-700">POS:</span>
-                                                                                                    <span className="ml-2 text-gray-900">
-                                                                                                        {caseDetail.pos !== undefined && caseDetail.pos !== null ? `₹${caseDetail.pos.toLocaleString()}` : 'N/A'}
-                                                                                                    </span>
-                                                                                                </div>
-                                                                                                <div>
-                                                                                                    <span className="font-semibold text-gray-700">EMI:</span>
-                                                                                                    <span className="ml-2 text-gray-900">
-                                                                                                        {caseDetail.emi !== undefined && caseDetail.emi !== null ? `₹${caseDetail.emi.toLocaleString()}` : 'N/A'}
-                                                                                                    </span>
-                                                                                                </div>
-                                                                                                <div>
-                                                                                                    <span className="font-semibold text-gray-700">Priority:</span>
-                                                                                                    <span className="ml-2 text-gray-900">{caseDetail.priority || 'N/A'}</span>
-                                                                                                </div>
+                                                                <div className="overflow-x-auto">
+                                                                    <table className="w-full text-sm">
+                                                                        <thead className="bg-gray-100">
+                                                                            <tr>
+                                                                                <th className="px-3 py-2 md:px-4 text-left text-xs font-medium text-gray-600 whitespace-nowrap">Loan ID</th>
+                                                                                <th className="px-3 py-2 md:px-4 text-left text-xs font-medium text-gray-600 whitespace-nowrap">Customer Name</th>
+                                                                                <th className="px-3 py-2 md:px-4 text-left text-xs font-medium text-gray-600 whitespace-nowrap">Mobile</th>
+                                                                                <th className="px-3 py-2 md:px-4 text-left text-xs font-medium text-gray-600 whitespace-nowrap">Call Status</th>
+                                                                                <th className="px-3 py-2 md:px-4 text-left text-xs font-medium text-gray-600 whitespace-nowrap">Last Call</th>
+                                                                                <th className="px-3 py-2 md:px-4 text-left text-xs font-medium text-gray-600 whitespace-nowrap">Calls Today</th>
+                                                                                <th className="px-3 py-2 md:px-4 text-left text-xs font-medium text-gray-600 whitespace-nowrap">Actions</th>
+                                                                            </tr>
+                                                                        </thead>
+                                                                        <tbody className="divide-y divide-gray-200">
+                                                                            {telecaller.casesDetails.map((caseDetail) => (
+                                                                                <React.Fragment key={caseDetail.id}>
+                                                                                    <tr className="hover:bg-gray-50">
+                                                                                        <td className="px-3 py-2 md:px-4 font-medium text-gray-900 whitespace-nowrap">{caseDetail.loanId}</td>
+                                                                                        <td className="px-3 py-2 md:px-4 text-gray-700 whitespace-nowrap">{caseDetail.customerName}</td>
+                                                                                        <td className="px-3 py-2 md:px-4 text-gray-600 whitespace-nowrap">{caseDetail.mobileNo}</td>
+                                                                                        <td className="px-3 py-2 md:px-4 whitespace-nowrap">
+                                                                                            <span className={`inline-flex px-2 py-1 rounded-full text-xs font-medium ${getCallStatusColor(caseDetail.callStatus)}`}>
+                                                                                                {caseDetail.callStatus}
+                                                                                            </span>
+                                                                                        </td>
+                                                                                        <td className="px-3 py-2 md:px-4 text-gray-600 whitespace-nowrap">{caseDetail.lastCallTime}</td>
+                                                                                        <td className="px-3 py-2 md:px-4 text-center whitespace-nowrap">
+                                                                                            <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-100 text-blue-800 text-xs font-semibold">
+                                                                                                {caseDetail.callCount}
+                                                                                            </span>
+                                                                                        </td>
+                                                                                        <td className="px-3 py-2 md:px-4 whitespace-nowrap">
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                <button
+                                                                                                    onClick={() => toggleCase(caseDetail.id)}
+                                                                                                    className="text-blue-600 hover:text-blue-800 flex items-center gap-1 text-xs"
+                                                                                                >
+                                                                                                    {expandedCases.has(caseDetail.id) ? (
+                                                                                                        <>
+                                                                                                            <EyeOff className="w-3 h-3" />
+                                                                                                            <span className="hidden sm:inline">Hide</span>
+                                                                                                        </>
+                                                                                                    ) : (
+                                                                                                        <>
+                                                                                                            <Eye className="w-3 h-3" />
+                                                                                                            <span className="hidden sm:inline">Details</span>
+                                                                                                        </>
+                                                                                                    )}
+                                                                                                </button>
+
+                                                                                                {onCaseClick && (
+                                                                                                    <button
+                                                                                                        onClick={() => onCaseClick(caseDetail)}
+                                                                                                        className="text-green-600 hover:text-green-800 flex items-center gap-1 text-xs"
+                                                                                                        title="Manage Case"
+                                                                                                    >
+                                                                                                        <Edit className="w-3 h-3" />
+                                                                                                        <span className="hidden sm:inline">Manage</span>
+                                                                                                    </button>
+                                                                                                )}
                                                                                             </div>
                                                                                         </td>
                                                                                     </tr>
-                                                                                )}
-                                                                            </React.Fragment>
-                                                                        ))}
-                                                                    </tbody>
-                                                                </table>
+                                                                                    {expandedCases.has(caseDetail.id) && (
+                                                                                        <tr>
+                                                                                            <td colSpan={7} className="px-3 py-2 md:px-4 bg-blue-50">
+                                                                                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 md:gap-4 text-xs">
+                                                                                                    <div>
+                                                                                                        <span className="font-semibold text-gray-700">Case Status:</span>
+                                                                                                        <span className="ml-2 text-gray-900">{caseDetail.caseStatus || 'N/A'}</span>
+                                                                                                    </div>
+                                                                                                    <div>
+                                                                                                        <span className="font-semibold text-gray-700">DPD:</span>
+                                                                                                        <span className="ml-2 text-gray-900">{caseDetail.dpd !== undefined ? caseDetail.dpd : 'N/A'}</span>
+                                                                                                    </div>
+                                                                                                    <div>
+                                                                                                        <span className="font-semibold text-gray-700">POS:</span>
+                                                                                                        <span className="ml-2 text-gray-900">
+                                                                                                            {caseDetail.pos !== undefined && caseDetail.pos !== null ? `₹${caseDetail.pos.toLocaleString()}` : 'N/A'}
+                                                                                                        </span>
+                                                                                                    </div>
+                                                                                                    <div>
+                                                                                                        <span className="font-semibold text-gray-700">EMI:</span>
+                                                                                                        <span className="ml-2 text-gray-900">
+                                                                                                            {caseDetail.emi !== undefined && caseDetail.emi !== null ? `₹${caseDetail.emi.toLocaleString()}` : 'N/A'}
+                                                                                                        </span>
+                                                                                                    </div>
+                                                                                                    <div>
+                                                                                                        <span className="font-semibold text-gray-700">Priority:</span>
+                                                                                                        <span className="ml-2 text-gray-900">{caseDetail.priority || 'N/A'}</span>
+                                                                                                    </div>
+                                                                                                </div>
+                                                                                            </td>
+                                                                                        </tr>
+                                                                                    )}
+                                                                                </React.Fragment>
+                                                                            ))}
+                                                                        </tbody>
+                                                                    </table>
+                                                                </div>
                                                             </div>
                                                         </div>
                                                     </td>

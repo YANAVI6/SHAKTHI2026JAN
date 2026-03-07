@@ -48,6 +48,8 @@ export interface TeamInchargeCase {
   pending_dues?: string;
   total_collected_amount?: number;
   custom_fields?: Record<string, unknown>;
+  latest_payment_date?: string;
+  today_payment_amount?: number;
 }
 
 export interface CaseUploadResult {

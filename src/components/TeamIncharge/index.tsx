@@ -11,6 +11,7 @@ import { NotificationManager } from './NotificationManager';
 import { User } from '../../contexts/AuthContext';
 import { PTPAlertSection } from '../shared/reports/PTPAlertSection';
 import { CallbackAlertSection } from '../shared/reports/CallbackAlertSection';
+import { PaymentHistorySection } from '../shared/reports/PaymentHistorySection';
 import { ChatSyncService } from '../../services/chatSyncService';
 import { useChannels } from '../../hooks/useChannels';
 import { CaseListSection } from '../shared/CaseListSection';
@@ -22,7 +23,7 @@ import { CustomerCase as ServiceCustomerCase } from '../../services/customerCase
 import ToastContainer from '../TelecallerDashboard/ToastContainer';
 import { useToast } from '../TelecallerDashboard/hooks';
 
-type SectionType = 'dashboard' | 'all-cases' | 'teams' | 'live-monitoring' | 'case-management' | 'reports' | 'ptp-alerts' | 'callback-alerts' | 'notifications' | 'settings';
+type SectionType = 'dashboard' | 'all-cases' | 'teams' | 'live-monitoring' | 'case-management' | 'reports' | 'ptp-alerts' | 'callback-alerts' | 'notifications' | 'settings' | 'payment-history';
 
 interface TeamInchargeDashboardProps {
   user: User;
@@ -58,6 +59,7 @@ export const TeamInchargeDashboard: React.FC<TeamInchargeDashboardProps> = ({ us
     { name: 'Reports', icon: BarChart, active: activeSection === 'reports', onClick: () => setActiveSection('reports') },
     { name: 'PTP Alert', icon: Bell, active: activeSection === 'ptp-alerts', onClick: () => setActiveSection('ptp-alerts') },
     { name: 'Callback Alert', icon: Bell, active: activeSection === 'callback-alerts', onClick: () => setActiveSection('callback-alerts') },
+    { name: 'Performance Dashboard', icon: BarChart, active: activeSection === 'payment-history', onClick: () => setActiveSection('payment-history') },
     { name: 'Notifications', icon: Bell, active: activeSection === 'notifications', onClick: () => setActiveSection('notifications') },
   ];
 
@@ -86,6 +88,14 @@ export const TeamInchargeDashboard: React.FC<TeamInchargeDashboardProps> = ({ us
       case 'callback-alerts':
         return (
           <CallbackAlertSection
+            user={user}
+            teamId={user.teamId}
+            onCaseClick={(caseItem) => setSelectedCase(mapServiceCaseToDashboardCase(caseItem as ServiceCustomerCase))}
+          />
+        );
+      case 'payment-history':
+        return (
+          <PaymentHistorySection
             user={user}
             teamId={user.teamId}
             onCaseClick={(caseItem) => setSelectedCase(mapServiceCaseToDashboardCase(caseItem as ServiceCustomerCase))}

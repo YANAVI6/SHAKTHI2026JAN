@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { PhoneCall, Phone, IndianRupee, Clock } from 'lucide-react';
+import { PhoneCall, Phone, IndianRupee, Clock, Download, Filter } from 'lucide-react';
 import { customerCaseService } from '../../../services/customerCaseService';
 import type { TeamInchargeCase } from '../../../types/caseManagement';
 
@@ -16,6 +16,7 @@ interface CallbackAlertSectionProps {
 export const CallbackAlertSection: React.FC<CallbackAlertSectionProps> = ({ user, onCaseClick, teamId }) => {
     const [cases, setCases] = useState<TeamInchargeCase[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedTelecaller, setSelectedTelecaller] = useState<string>('all');
 
     useEffect(() => {
         const loadCallbackCases = async () => {
@@ -39,6 +40,73 @@ export const CallbackAlertSection: React.FC<CallbackAlertSectionProps> = ({ user
         return <div className="p-8 text-center text-gray-500">Loading Callback Alerts...</div>;
     }
 
+    const telecallers = React.useMemo(() => {
+        const unique = new Map();
+        cases.forEach(c => {
+            if (c.telecaller?.id) {
+                unique.set(c.telecaller.id, {
+                    id: c.telecaller.id,
+                    name: c.telecaller.name || 'Unknown',
+                    empId: c.telecaller.emp_id || ''
+                });
+            }
+        });
+        return Array.from(unique.values());
+    }, [cases]);
+
+    const filteredCases = React.useMemo(() => {
+        if (selectedTelecaller === 'all') return cases;
+        return cases.filter(c => c.telecaller?.id === selectedTelecaller);
+    }, [cases, selectedTelecaller]);
+
+    const exportToCSV = () => {
+        if (filteredCases.length === 0) return;
+
+        const headers = [
+            'Customer Name',
+            'Mobile',
+            'Loan ID',
+            'Product',
+            'Callback Date',
+            'Callback Time',
+            'Outstanding Amount',
+            'EMI Amount',
+            'DPD',
+            'Latest Call Status',
+            'Telecaller Name',
+            'Telecaller ID'
+        ].join(',');
+
+        const rows = filteredCases.map(c => {
+            const callbackDatetime = c.latest_callback_date ? new Date(c.latest_callback_date) : null;
+            return [
+                `"${c.customer_name || ''}"`,
+                `"${c.mobile_no || ''}"`,
+                `"${c.loan_id || ''}"`,
+                `"${c.product_name || ''}"`,
+                `"${callbackDatetime ? callbackDatetime.toLocaleDateString() : ''}"`,
+                `"${callbackDatetime ? callbackDatetime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}"`,
+                `"${c.outstanding_amount || 0}"`,
+                `"${c.emi_amount || ''}"`,
+                `"${c.dpd || 0}"`,
+                `"${c.latest_call_status || ''}"`,
+                `"${c.telecaller?.name || ''}"`,
+                `"${c.telecaller?.emp_id || ''}"`
+            ].join(',');
+        });
+
+        const csvContent = [headers, ...rows].join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `callback_alerts_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
     return (
         <div className="p-6 max-w-7xl mx-auto">
             <div className="mb-6 flex items-center justify-between">
@@ -51,12 +119,37 @@ export const CallbackAlertSection: React.FC<CallbackAlertSectionProps> = ({ user
                         <p className="text-gray-500 text-sm">Cases scheduled for callback today</p>
                     </div>
                 </div>
-                <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-medium border border-blue-100">
-                    {cases.length} Due Today
+                <div className="flex items-center gap-4">
+                    {user.role !== 'Telecaller' && telecallers.length > 0 && (
+                        <div className="flex items-center bg-white border border-gray-200 rounded-lg px-3 py-1.5 shadow-sm">
+                            <Filter className="w-4 h-4 text-gray-400 mr-2" />
+                            <select
+                                value={selectedTelecaller}
+                                onChange={(e) => setSelectedTelecaller(e.target.value)}
+                                className="bg-transparent text-sm text-gray-700 outline-none cursor-pointer"
+                            >
+                                <option value="all">All Telecallers</option>
+                                {telecallers.map(t => (
+                                    <option key={t.id} value={t.id}>{t.name} ({t.empId})</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
+                    <button
+                        onClick={exportToCSV}
+                        disabled={filteredCases.length === 0}
+                        className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium shadow-sm"
+                    >
+                        <Download className="w-4 h-4" />
+                        Export CSV
+                    </button>
+                    <div className="bg-blue-50 text-blue-700 px-4 py-2 rounded-lg font-medium border border-blue-100">
+                        {filteredCases.length} Due Today
+                    </div>
                 </div>
             </div>
 
-            {cases.length === 0 ? (
+            {filteredCases.length === 0 ? (
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
                     <div className="w-16 h-16 bg-gray-50 rounded-full flex items-center justify-center mx-auto mb-4">
                         <PhoneCall className="w-8 h-8 text-gray-400" />
@@ -82,7 +175,7 @@ export const CallbackAlertSection: React.FC<CallbackAlertSectionProps> = ({ user
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
-                                {cases.map((caseItem) => (
+                                {filteredCases.map((caseItem) => (
                                     <tr
                                         key={caseItem.id}
                                         className="hover:bg-gray-50 transition-colors cursor-pointer group"

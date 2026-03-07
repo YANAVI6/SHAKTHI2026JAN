@@ -337,14 +337,26 @@ export class TeamService {
         .eq('team_id', teamId);
 
       if (caseIds && caseIds.length > 0) {
-        const { count, error: callLogError } = await supabase
-          .from('case_call_logs')
-          .select('*', { count: 'exact', head: true })
-          .in('case_id', caseIds.map(c => c.id));
-
-        if (!callLogError && count) {
-          callLogCount = count;
+        // Chunk case IDs to avoid URI Too Long error (414)
+        const CHUNK_SIZE = 100;
+        const chunks = [];
+        for (let i = 0; i < caseIds.length; i += CHUNK_SIZE) {
+          chunks.push(caseIds.slice(i, i + CHUNK_SIZE).map(c => c.id));
         }
+
+        // Fetch counts for each chunk and sum
+        let totalCount = 0;
+        for (const chunk of chunks) {
+          const { count, error: callLogError } = await supabase
+            .from('case_call_logs')
+            .select('*', { count: 'exact', head: true })
+            .in('case_id', chunk);
+
+          if (!callLogError && count) {
+            totalCount += count;
+          }
+        }
+        callLogCount = totalCount;
       }
     }
 
@@ -386,6 +398,27 @@ export class TeamService {
 
     if (error) throw error;
     return data || [];
+  }
+
+  /**
+   * Get all telecallers in a specific team
+   */
+  static async getTeamMembers(teamId: string): Promise<Pick<Telecaller, 'id' | 'name' | 'emp_id'>[]> {
+    const { data: teamTelecallers, error } = await supabase
+      .from('team_telecallers')
+      .select(`
+        telecaller_id,
+        employees:telecaller_id (id, name, emp_id)
+      `)
+      .eq('team_id', teamId);
+
+    if (error) {
+      console.error('Error fetching team members:', error);
+      return [];
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return teamTelecallers?.map((tt: any) => tt.employees).filter(Boolean) || [];
   }
 
   /**
@@ -531,12 +564,14 @@ export class TeamService {
       const teamCollections = await Promise.all(
         teams.map(async (team) => {
           // Get all telecallers in this team
-          const { data: telecallers, error: telecallersError } = await supabase
-            .from(EMPLOYEE_TABLE)
-            .select('id')
+          // Get all telecallers in this team using junction table
+          const { data: teamTelecallers, error: telecallersError } = await supabase
+            .from('team_telecallers')
+            .select('telecaller_id')
             .eq('team_id', team.id);
 
-          if (telecallersError || !telecallers || telecallers.length === 0) {
+          if (telecallersError) {
+            console.error('Error fetching team telecallers:', telecallersError);
             return {
               team_id: team.id,
               team_name: team.name,
@@ -544,7 +579,15 @@ export class TeamService {
             };
           }
 
-          const telecallerIds = telecallers.map(t => t.id);
+          if (!teamTelecallers || teamTelecallers.length === 0) {
+            return {
+              team_id: team.id,
+              team_name: team.name,
+              total_collected: 0
+            };
+          }
+
+          const telecallerIds = teamTelecallers.map(t => t.telecaller_id);
 
           // Sum all amount_collected from case_call_logs for these telecallers
           const { data: collections, error: collectionsError } = await supabase
@@ -563,7 +606,10 @@ export class TeamService {
           }
 
           const totalCollected = collections?.reduce((sum, log) => {
-            const amount = parseFloat(log.amount_collected || '0');
+            const cleanAmount = typeof log.amount_collected === 'string'
+              ? log.amount_collected.replace(/,/g, '')
+              : String(log.amount_collected || '0');
+            const amount = parseFloat(cleanAmount || '0');
             return sum + amount;
           }, 0) || 0;
 
@@ -575,8 +621,8 @@ export class TeamService {
         })
       );
 
-      // Filter out teams with zero collections for cleaner visualization
-      return teamCollections.filter(tc => tc.total_collected > 0);
+      // Return all teams regardless of collection amount so UI can decide
+      return teamCollections;
     } catch (error) {
       console.error('Error in getTeamCollections:', error);
       return [];
@@ -651,7 +697,10 @@ export class TeamService {
         if (perf) {
           perf.callsToday++;
           if (log.amount_collected) {
-            perf.collected += parseFloat(log.amount_collected);
+            const cleanAmount = typeof log.amount_collected === 'string'
+              ? log.amount_collected.replace(/,/g, '')
+              : String(log.amount_collected);
+            perf.collected += parseFloat(cleanAmount || '0');
           }
           if (log.call_status?.toLowerCase().includes('ptp')) {
             perf.ptpCount++;
@@ -697,15 +746,20 @@ export class TeamService {
     collected: number;
   }>> {
     try {
-      const { data: telecallers, error: teleError } = await supabase
-        .from(EMPLOYEE_TABLE)
-        .select('id, name')
-        .eq('team_id', teamId)
-        .eq('role', 'Telecaller');
+      const { data: teamTelecallers, error: teleError } = await supabase
+        .from('team_telecallers')
+        .select(`
+          telecaller_id,
+          employees:telecaller_id (id, name)
+        `)
+        .eq('team_id', teamId);
 
-      if (teleError || !telecallers || telecallers.length === 0) return [];
+      if (teleError || !teamTelecallers || teamTelecallers.length === 0) return [];
 
-      const telecallerIds = telecallers.map(t => t.id);
+      // Extract telecallers correctly from the join
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const telecallers = teamTelecallers.map((tt: any) => tt.employees).filter((e: any) => e);
+      const telecallerIds = telecallers.map((t: { id: string }) => t.id);
 
       const { data: logs, error: logsError } = await supabase
         .from('case_call_logs')
@@ -719,7 +773,10 @@ export class TeamService {
       telecallers.forEach(t => performanceMap.set(t.id, 0));
 
       logs?.forEach(log => {
-        const amount = parseFloat(log.amount_collected || '0');
+        const cleanAmount = typeof log.amount_collected === 'string'
+          ? log.amount_collected.replace(/,/g, '')
+          : String(log.amount_collected || '0');
+        const amount = parseFloat(cleanAmount || '0');
         const current = performanceMap.get(log.employee_id) || 0;
         performanceMap.set(log.employee_id, current + amount);
       });
@@ -753,11 +810,11 @@ export class TeamService {
 
       let telecallerIds: string[] = [];
       if (teamId) {
-        const { data: telecallers } = await supabase
-          .from(EMPLOYEE_TABLE)
-          .select('id')
+        const { data: teamTelecallers } = await supabase
+          .from('team_telecallers')
+          .select('telecaller_id')
           .eq('team_id', teamId);
-        telecallerIds = telecallers?.map(t => t.id) || [];
+        telecallerIds = teamTelecallers?.map(t => t.telecaller_id) || [];
       }
 
       let query = supabase
@@ -783,7 +840,10 @@ export class TeamService {
         const date = log.created_at.split('T')[0];
         if (dailyTotals.has(date)) {
           const current = dailyTotals.get(date) || 0;
-          dailyTotals.set(date, current + parseFloat(log.amount_collected || '0'));
+          const cleanAmount = typeof log.amount_collected === 'string'
+            ? log.amount_collected.replace(/,/g, '')
+            : String(log.amount_collected || '0');
+          dailyTotals.set(date, current + parseFloat(cleanAmount || '0'));
         }
       });
 

@@ -20,6 +20,13 @@ export const BreakManager: React.FC = () => {
             const diffMins = Math.floor(diffMs / 60000);
             const diffSecs = Math.floor((diffMs % 60000) / 1000);
 
+            // Auto-end break after 15 minutes
+            if (diffMins >= 15) {
+                handleEndBreak();
+                alert('Break time limit (15 mins) exceeded. You have been set back to active status.');
+                return;
+            }
+
             if (diffMins > 0) {
                 setBreakDuration(`${diffMins}m ${diffSecs}s`);
             } else {

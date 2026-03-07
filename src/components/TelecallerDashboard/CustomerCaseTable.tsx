@@ -214,7 +214,7 @@ const CustomerCaseTable: React.FC<CustomerCaseTableProps> = ({
                 : `font-medium ${isViewed ? 'text-gray-600' : 'text-gray-900'}`
               : `${isViewed ? 'text-gray-600' : 'text-gray-900 font-medium'}`
           }>
-            {String(value || '-')}
+            {value !== undefined && value !== null && value !== '' ? String(value) : '-'}
           </span>
         );
       }

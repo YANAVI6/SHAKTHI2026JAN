@@ -638,17 +638,19 @@ export class ChatService {
                     last_seen: new Date().toISOString()
                 }, { onConflict: 'user_id' }); // Conflict target must match PRIMARY KEY
 
-            if (error) throw error;
-        } catch (error) {
-            // Ignore duplicate key errors which can happen during rapid updates
-            // Also ignore FK violations (23503) if user table logic isn't fully migrated yet
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const code = (error as any)?.code;
-            if (code === '23505' || code === '409' || code === '23503') {
-                return;
+            if (error) {
+                console.error('❌ Error updating user status:', {
+                    message: error.message,
+                    details: error.details,
+                    hint: error.hint,
+                    code: error.code,
+                    userId,
+                    tenantId,
+                    status
+                });
             }
-            console.error('Error updating user status:', error);
-            // Don't throw for status updates to avoid disrupting the UI
+        } catch (error) {
+            console.error('❌ Exception updating user status:', error);
         }
     }
 

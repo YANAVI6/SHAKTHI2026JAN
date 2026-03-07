@@ -55,6 +55,7 @@ export interface CustomerCase {
   latest_ptp_date?: string;
   buckets?: string;
   is_retained?: boolean;
+  status_update_count?: number;
 }
 
 export interface CallLog {
@@ -565,15 +566,29 @@ export const customerCaseService = {
     // Get unique employee IDs
     const employeeIds = [...new Set(logs.map(log => log.employee_id))];
 
-    // Fetch employee names
-    const { data: employees, error: employeesError } = await supabase
-      .from('employees')
-      .select('id, name')
-      .in('id', employeeIds);
+    // Use chunking for large employee ID lists to avoid URI size limits
+    const chunkSize = 50;
+    const allEmployees: { id: string, name: string }[] = [];
 
-    if (employeesError) {
-      console.error('Error fetching employees:', employeesError);
-      // Return logs without employee names if fetch fails
+    for (let i = 0; i < employeeIds.length; i += chunkSize) {
+      const chunk = employeeIds.slice(i, i + chunkSize);
+      const { data: employees, error: employeesError } = await supabase
+        .from('employees')
+        .select('id, name')
+        .in('id', chunk);
+
+      if (employeesError) {
+        console.error('Error fetching employees chunk:', employeesError);
+        continue;
+      }
+
+      if (employees) {
+        allEmployees.push(...employees);
+      }
+    }
+
+    if (allEmployees.length === 0 && employeeIds.length > 0) {
+      // Return logs without employee names if fetch fails completely
       return logs.map(log => ({
         ...log,
         employee_name: 'Unknown'
@@ -582,7 +597,7 @@ export const customerCaseService = {
 
     // Create a map of employee IDs to names
     const employeeMap = new Map(
-      (employees || []).map(emp => [emp.id, emp.name])
+      allEmployees.map(emp => [emp.id, emp.name])
     );
 
     // Merge employee names with call logs
@@ -1028,216 +1043,7 @@ export const customerCaseService = {
     }
   },
 
-  async getLiveMonitoringStats(tenantId: string, teamIds: string[]): Promise<unknown[]> {
-    try {
-      // 1. Get Teams with Telecallers via Junction Table
-      const { data: teams, error } = await supabase
-        .from('teams')
-        .select(`
-                id, 
-                name, 
-                team_telecallers (
-                    employees:telecaller_id (id, name, emp_id, role, status)
-                )
-            `)
-        .in('id', teamIds)
-        .eq('status', 'active'); // Teams must be active
 
-      if (error) {
-        console.error('Error fetching teams for live monitoring:', error);
-        return [];
-      }
-
-      if (!teams) return [];
-
-      // Flatten the structure: Team -> Junction -> Employee
-      const teamsWithEmployees = teams.map(t => {
-        const junctions = (t.team_telecallers as unknown as { employees: { id: string, name: string, emp_id: string, role: string, status: string } }[]) || [];
-        // Filter out any null employees or non-active/non-telecaller ones if needed
-        // The TeamService generally ensures valid assignments, but safe to filter.
-        const employees = junctions
-          .map(j => j.employees)
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          .filter((e: any) => e && e.status === 'active' && e.role === 'Telecaller');
-
-        return {
-          ...t,
-          telecallers: employees
-        };
-      });
-
-      const allTelecallerIds = teamsWithEmployees.flatMap(t => t.telecallers.map((e: { id: string }) => e.id));
-
-      if (allTelecallerIds.length === 0) {
-        return teamsWithEmployees.map(t => ({
-          teamId: t.id,
-          teamName: t.name,
-          totalCases: 0,
-          liveCases: 0,
-          telecallers: []
-        }));
-      }
-
-      // 2. Get User Activity
-      const { data: activityData } = await supabase
-        .from('user_activity')
-        .select('employee_id, status, last_active_time')
-        .in('employee_id', allTelecallerIds)
-        .eq('tenant_id', tenantId)
-        //.order('last_active_time', { ascending: false }); // Order in JS to avoid grouping issues if any
-        .gt('last_active_time', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()); // Optimization: only last 24h
-
-      const activityMap = new Map();
-      // Since we ordered by time desc, first entry per user is latest
-      // We need to sort in JS if we fetched multiple
-      activityData?.sort((a, b) => new Date(b.last_active_time).getTime() - new Date(a.last_active_time).getTime());
-      activityData?.forEach(a => {
-        if (!activityMap.has(a.employee_id)) activityMap.set(a.employee_id, a);
-      });
-
-      // 3. Get Total Case Counts (Paginated to bypass limit)
-      // We only need count per (telecaller, team).
-      let allAssignedCases: { telecaller_id: string | null, team_id: string | null }[] = [];
-      let page = 0;
-      const pageSize = 1000;
-      let hasMore = true;
-
-      // Safety break
-      let loopCount = 0;
-      while (hasMore && loopCount < 50) { // Limit to 50 pages (50k cases) for safety
-        const { data: batch } = await supabase
-          .from(CUSTOMER_CASE_TABLE)
-          .select('telecaller_id, team_id')
-          .eq('tenant_id', tenantId)
-          .in('telecaller_id', allTelecallerIds)
-          .neq('case_status', 'deleted')
-          .range(page * pageSize, (page + 1) * pageSize - 1);
-
-        if (batch && batch.length > 0) {
-          allAssignedCases = [...allAssignedCases, ...batch];
-          if (batch.length < pageSize) hasMore = false;
-          page++;
-        } else {
-          hasMore = false;
-        }
-        loopCount++;
-      }
-
-      const caseCounts = new Map<string, number>();
-      allAssignedCases.forEach(c => {
-        if (c.telecaller_id && c.team_id) {
-          const key = `${c.telecaller_id}_${c.team_id}`;
-          caseCounts.set(key, (caseCounts.get(key) || 0) + 1);
-        }
-      });
-
-      // 4. Get Call Logs (Today)
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-
-      const { data: callLogs } = await supabase
-        .from('case_call_logs')
-        .select('case_id, employee_id, call_status, created_at, customer_cases!inner(team_id)')
-        .in('employee_id', allTelecallerIds)
-        .gte('created_at', today.toISOString())
-        .order('created_at', { ascending: false });
-
-      const logs = (callLogs || []).map(l => ({
-        ...l,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        team_id: (l.customer_cases as any)?.team_id
-      }));
-
-      // 5. Get Unique Cases for Details
-      const activeCaseIds = [...new Set(logs.map(l => l.case_id))];
-      let caseDetailsMap = new Map();
-
-      if (activeCaseIds.length > 0) {
-        const { data: activeCases } = await supabase
-          .from(CUSTOMER_CASE_TABLE)
-          .select('*')
-          .in('id', activeCaseIds);
-
-        if (activeCases) {
-          caseDetailsMap = new Map(activeCases.map(c => [c.id, c]));
-        }
-      }
-
-      return teamsWithEmployees.map(team => {
-        const teamTelecallers = (team.telecallers as { id: string, name: string }[]) || [];
-
-        const telecallerStats = teamTelecallers.map(t => {
-          const totalVariables = caseCounts.get(`${t.id}_${team.id}`) || 0;
-          const userLogs = logs.filter(l => l.employee_id === t.id && l.team_id === team.id);
-          const uniqueWorkedCaseIds = [...new Set(userLogs.map(l => l.case_id))];
-
-          // Build Case Details
-          const casesDetails = uniqueWorkedCaseIds.map(caseId => {
-            const caseData = caseDetailsMap.get(caseId);
-            const log = userLogs.find(l => l.case_id === caseId); // First one is latest due to sort
-            if (!caseData || !log) return null;
-
-            // Helper to get value from case_data
-            const getValueFromCaseData = (keys: string[]) => {
-              const data = caseData.case_data || {};
-              for (const key of keys) {
-                if (data[key] !== undefined && data[key] !== null) {
-                  return String(data[key]).replace(/,/g, '');
-                }
-              }
-              return undefined;
-            };
-
-            const rawPos = caseData.outstanding_amount || getValueFromCaseData(['pos', 'pos_amount', 'outstanding_amount', 'total_outstanding', 'Total Outstanding', 'POS']);
-            const rawEmi = caseData.emi_amount || getValueFromCaseData(['emi', 'emi_amount', 'EMI', 'EMI Amount']);
-
-            return {
-              id: caseId,
-              loanId: caseData.loan_id || 'N/A',
-              customerName: caseData.customer_name || 'N/A',
-              mobileNo: caseData.mobile_no || 'N/A',
-              callStatus: log.call_status || 'N/A',
-              lastCallTime: new Date(log.created_at).toLocaleTimeString(),
-              callCount: userLogs.filter(l => l.case_id === caseId).length,
-              caseStatus: caseData.case_status,
-              dpd: caseData.dpd,
-              pos: rawPos ? parseFloat(String(rawPos).replace(/,/g, '')) : undefined,
-              emi: rawEmi ? parseFloat(String(rawEmi).replace(/,/g, '')) : undefined,
-              priority: caseData.priority
-            };
-          }).filter(Boolean);
-
-          const activity = activityMap.get(t.id);
-          const lastActive = activity?.last_active_time ? new Date(activity.last_active_time) : null;
-          const minutesAgo = lastActive ? Math.floor((Date.now() - lastActive.getTime()) / 60000) : 999;
-
-          return {
-            id: t.id,
-            name: t.name,
-            teamName: team.name,
-            totalCases: totalVariables,
-            liveCases: casesDetails.length,
-            completedToday: userLogs.filter(l => l.call_status === 'PTP' || l.call_status === 'PAID').length,
-            lastActivity: minutesAgo < 60 ? `${minutesAgo}m ago` : minutesAgo < 1440 ? `${Math.floor(minutesAgo / 60)}h ago` : 'Offline',
-            status: activity?.status || 'Offline',
-            casesDetails: casesDetails
-          };
-        });
-
-        return {
-          teamId: team.id,
-          teamName: team.name,
-          totalCases: telecallerStats.reduce((s, t) => s + t.totalCases, 0),
-          liveCases: telecallerStats.reduce((s, t) => s + t.liveCases, 0),
-          telecallers: telecallerStats
-        };
-      });
-
-    } catch (error) {
-      console.error('Error fetching live monitoring stats:', error);
-      return [];
-    }
-  },
 
   async getTelecallerDashboardStats(tenantId: string, empId: string, teamId: string) {
     try {
@@ -1371,6 +1177,26 @@ export const customerCaseService = {
       const { data, count, error } = await query.range(from, to);
 
       if (error) {
+        // Handle 416 Range Not Satisfiable error (offset exceeds available rows)
+        if (error.code === 'PGRST103' && from > 0) {
+          console.warn('Pagination offset exceeded, resetting to page 1');
+          const { data: retryData, count: retryCount } = await query.range(0, pageSize - 1);
+          if (retryData) {
+            const enriched = (retryData || []).map((c: CustomerCase & { case_call_logs?: CallLog[]; latest_call_status?: string; latest_call_date?: string; latest_ptp_date?: string }) => {
+              const logs = c.case_call_logs || [];
+              logs.sort((a: CallLog, b: CallLog) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+              const cData = c.case_data || {};
+              return {
+                ...c,
+                case_call_logs: logs,
+                latest_call_status: c.latest_call_status || (cData.latest_call_status as string) || logs[0]?.call_status,
+                latest_call_date: c.latest_call_date || (cData.latest_call_date as string) || logs[0]?.created_at,
+                latest_ptp_date: c.latest_ptp_date || (cData.latest_ptp_date as string) || logs[0]?.ptp_datetime
+              };
+            });
+            return { cases: enriched, total: retryCount || 0 };
+          }
+        }
         console.error('Error fetching paginated cases:', error);
         return { cases: [], total: 0 };
       }
@@ -1386,7 +1212,8 @@ export const customerCaseService = {
           // Only set from logs if not already present from DB (fallback)
           latest_call_status: c.latest_call_status || (cData.latest_call_status as string) || logs[0]?.call_status,
           latest_call_date: c.latest_call_date || (cData.latest_call_date as string) || logs[0]?.created_at,
-          latest_ptp_date: c.latest_ptp_date || (cData.latest_ptp_date as string) || logs[0]?.ptp_datetime
+          latest_ptp_date: c.latest_ptp_date || (cData.latest_ptp_date as string) || logs[0]?.ptp_datetime,
+          status_update_count: logs.length
         };
       });
 
@@ -1465,171 +1292,178 @@ export const customerCaseService = {
       telecallerMap.set(tel.emp_id, tel.id);
     });
 
-    // Process cases in batches
+    // PHASE 1: Pre-validate and prepare all rows
+    const validCases: Array<{ rowNumber: number; payload: Record<string, unknown> }> = [];
+
     for (let i = 0; i < cases.length; i++) {
-      try {
-        const caseData = cases[i];
-        const rowNumber = i + 1;
+      const caseData = cases[i];
+      const rowNumber = i + 1;
 
-        // Validate required fields
-        if (!caseData.tenant_id) {
-          errors.push({
-            row: rowNumber,
-            error: 'tenant_id is required',
-            data: caseData
-          });
-          continue;
-        }
+      // Validate required fields
+      if (!caseData.tenant_id) {
+        errors.push({
+          row: rowNumber,
+          error: 'tenant_id is required',
+          data: caseData
+        });
+        continue;
+      }
 
-        if (!caseData.loan_id) {
-          errors.push({
-            row: rowNumber,
-            error: 'loan_id is required',
-            data: caseData
-          });
-          continue;
-        }
+      if (!caseData.loan_id) {
+        errors.push({
+          row: rowNumber,
+          error: 'loan_id is required',
+          data: caseData
+        });
+        continue;
+      }
 
-        if (!caseData.customer_name) {
-          errors.push({
-            row: rowNumber,
-            error: 'customer_name is required',
-            data: caseData
-          });
-          continue;
-        }
+      if (!caseData.customer_name) {
+        errors.push({
+          row: rowNumber,
+          error: 'customer_name is required',
+          data: caseData
+        });
+        continue;
+      }
 
-        // Auto-assign based on EMPID if available
-        if (caseData.case_data?.EMPID && telecallerMap.has(String(caseData.case_data.EMPID))) {
-          const telecallerUuid = telecallerMap.get(String(caseData.case_data.EMPID));
-          caseData.telecaller_id = telecallerUuid;
-          caseData.assigned_employee_id = String(caseData.case_data.EMPID);
-          caseData.case_status = 'assigned';
-          autoAssigned++;
-        } else {
-          // Ensure telecaller_id is not sent for unassigned cases
-          delete (caseData as { telecaller_id?: string }).telecaller_id;
-          caseData.assigned_employee_id = 'UNASSIGNED'; // Default value for unassigned cases
-          caseData.case_status = 'pending';
-          unassigned++;
-        }
+      // Auto-assign based on EMPID if available
+      if (caseData.case_data?.EMPID && telecallerMap.has(String(caseData.case_data.EMPID))) {
+        const telecallerUuid = telecallerMap.get(String(caseData.case_data.EMPID));
+        caseData.telecaller_id = telecallerUuid;
+        caseData.assigned_employee_id = String(caseData.case_data.EMPID);
+        caseData.case_status = 'assigned';
+        autoAssigned++;
+      } else {
+        // Ensure telecaller_id is not sent for unassigned cases
+        delete (caseData as { telecaller_id?: string }).telecaller_id;
+        caseData.assigned_employee_id = 'UNASSIGNED';
+        caseData.case_status = 'pending';
+        unassigned++;
+      }
 
-        // Create a clean insert payload
-        const insertPayload: Record<string, unknown> = {
-          tenant_id: caseData.tenant_id,
-          team_id: caseData.team_id,
-          product_name: caseData.product_name,
-          loan_id: caseData.loan_id,
-          customer_name: caseData.customer_name,
-          mobile_no: caseData.mobile_no,
-          alternate_number: caseData.alternate_number,
-          email: caseData.email,
-          loan_amount: caseData.loan_amount,
-          loan_type: caseData.loan_type,
-          outstanding_amount: caseData.outstanding_amount,
-          pos_amount: caseData.pos_amount,
-          emi_amount: caseData.emi_amount,
-          pending_dues: caseData.pending_dues,
-          dpd: caseData.dpd,
-          branch_name: caseData.branch_name,
-          address: caseData.address,
-          city: caseData.city,
-          state: caseData.state,
-          pincode: caseData.pincode,
-          sanction_date: caseData.sanction_date,
-          last_paid_date: caseData.last_paid_date,
-          last_paid_amount: caseData.last_paid_amount,
-          payment_link: caseData.payment_link,
-          remarks: caseData.remarks,
-          case_data: caseData.case_data,
-          uploaded_by: caseData.uploaded_by,
-          assigned_employee_id: caseData.assigned_employee_id,
-          case_status: caseData.case_status
-        };
+      // Create a clean payload
+      const payload: Record<string, unknown> = {
+        tenant_id: caseData.tenant_id,
+        team_id: caseData.team_id,
+        product_name: caseData.product_name,
+        loan_id: caseData.loan_id,
+        customer_name: caseData.customer_name,
+        mobile_no: caseData.mobile_no,
+        alternate_number: caseData.alternate_number,
+        email: caseData.email,
+        loan_amount: caseData.loan_amount,
+        loan_type: caseData.loan_type,
+        outstanding_amount: caseData.outstanding_amount,
+        pos_amount: caseData.pos_amount,
+        emi_amount: caseData.emi_amount,
+        pending_dues: caseData.pending_dues,
+        dpd: caseData.dpd,
+        branch_name: caseData.branch_name,
+        address: caseData.address,
+        city: caseData.city,
+        state: caseData.state,
+        pincode: caseData.pincode,
+        sanction_date: caseData.sanction_date,
+        last_paid_date: caseData.last_paid_date,
+        last_paid_amount: caseData.last_paid_amount,
+        payment_link: caseData.payment_link,
+        remarks: caseData.remarks,
+        case_data: caseData.case_data,
+        uploaded_by: caseData.uploaded_by,
+        assigned_employee_id: caseData.assigned_employee_id,
+        case_status: caseData.case_status
+      };
 
-        // Only include telecaller_id if it's a valid UUID
-        if (caseData.telecaller_id && typeof caseData.telecaller_id === 'string' && caseData.telecaller_id.length === 36) {
-          insertPayload.telecaller_id = caseData.telecaller_id;
-        }
+      // Only include telecaller_id if it's a valid UUID
+      if (caseData.telecaller_id && typeof caseData.telecaller_id === 'string' && caseData.telecaller_id.length === 36) {
+        payload.telecaller_id = caseData.telecaller_id;
+      }
 
-        // Try to insert first, if it fails due to duplicate, try to update
-        let { error } = await supabase
-          .from(CUSTOMER_CASE_TABLE)
-          .insert([insertPayload]);
+      validCases.push({ rowNumber, payload });
+    }
 
-        // If insert failed due to duplicate key, try update
-        if (error && error.code === '23505') {
-          // Create a clean update object without spreading to avoid field corruption
-          const updateData: Record<string, unknown> = {
-            customer_name: caseData.customer_name,
-            mobile_no: caseData.mobile_no,
-            alternate_number: caseData.alternate_number,
-            email: caseData.email,
-            loan_amount: caseData.loan_amount,
-            loan_type: caseData.loan_type,
-            outstanding_amount: caseData.outstanding_amount,
-            pos_amount: caseData.pos_amount,
-            emi_amount: caseData.emi_amount,
-            pending_dues: caseData.pending_dues,
-            dpd: caseData.dpd,
-            branch_name: caseData.branch_name,
-            address: caseData.address,
-            city: caseData.city,
-            state: caseData.state,
-            pincode: caseData.pincode,
-            sanction_date: caseData.sanction_date,
-            last_paid_date: caseData.last_paid_date,
-            last_paid_amount: caseData.last_paid_amount,
-            payment_link: caseData.payment_link,
-            remarks: caseData.remarks,
-            case_data: caseData.case_data,
-            case_status: caseData.case_status,
-            assigned_employee_id: caseData.assigned_employee_id,
-            updated_at: new Date().toISOString()
-          };
+    // PHASE 2: Batch upsert with fallback
+    const BATCH_SIZE = 100;
+    const totalBatches = Math.ceil(validCases.length / BATCH_SIZE);
 
-          // Only include telecaller_id if it exists and is a valid UUID
-          if (caseData.telecaller_id && typeof caseData.telecaller_id === 'string' && caseData.telecaller_id.length === 36) {
-            updateData.telecaller_id = caseData.telecaller_id;
-          }
+    for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+      const batchStart = batchIndex * BATCH_SIZE;
+      const batchEnd = Math.min(batchStart + BATCH_SIZE, validCases.length);
+      const batch = validCases.slice(batchStart, batchEnd);
 
-          const { error: updateError } = await supabase
-            .from(CUSTOMER_CASE_TABLE)
-            .update(updateData)
-            .eq('tenant_id', caseData.tenant_id)
-            .eq('loan_id', caseData.loan_id);
+      // Extract just the payloads for upsert
+      const batchPayloads = batch.map(item => item.payload);
 
-          if (updateError) {
-            console.error('Update error:', updateError);
-            error = updateError;
-          } else {
+      // Try batch upsert first
+      const { error: batchError } = await supabase
+        .from(CUSTOMER_CASE_TABLE)
+        .upsert(batchPayloads, {
+          onConflict: 'tenant_id,team_id,loan_id',
+          ignoreDuplicates: false
+        });
 
-            error = null; // Update succeeded
-          }
-        }
+      if (!batchError) {
+        // Batch succeeded - count all as uploaded
+        totalUploaded += batch.length;
 
-        if (error) {
-          console.error('Final error for row', rowNumber, ':', error);
-          errors.push({
-            row: rowNumber,
-            error: error.message || 'Unknown database error',
-            data: caseData
-          });
-        } else {
-          totalUploaded++;
-        }
-
-        // Report progress with uploaded count
+        // Report progress
         if (onProgress) {
-          const progress = Math.round(((i + 1) / cases.length) * 100);
+          const processedSoFar = Math.min(batchEnd, validCases.length);
+          const progress = Math.round((processedSoFar / validCases.length) * 100);
           onProgress(progress, totalUploaded);
         }
-      } catch (error) {
-        errors.push({
-          row: i + 1,
-          error: (error as Error).message,
-          data: cases[i]
-        });
+      } else {
+        // Batch failed - fallback to row-by-row for this batch only
+        console.warn(`Batch ${batchIndex + 1}/${totalBatches} failed, falling back to row-by-row:`, batchError.message);
+
+        for (const { rowNumber, payload } of batch) {
+          try {
+            // Try insert first
+            let { error } = await supabase
+              .from(CUSTOMER_CASE_TABLE)
+              .insert([payload]);
+
+            // If duplicate, try update
+            if (error && error.code === '23505') {
+              const updateData = { ...payload };
+              delete updateData.tenant_id;
+              delete updateData.loan_id;
+              updateData.updated_at = new Date().toISOString();
+
+              const { error: updateError } = await supabase
+                .from(CUSTOMER_CASE_TABLE)
+                .update(updateData)
+                .eq('tenant_id', payload.tenant_id as string)
+                .eq('loan_id', payload.loan_id as string);
+
+              error = updateError || null;
+            }
+
+            if (error) {
+              errors.push({
+                row: rowNumber,
+                error: error.message || 'Unknown database error',
+                data: payload
+              });
+            } else {
+              totalUploaded++;
+            }
+          } catch (err) {
+            errors.push({
+              row: rowNumber,
+              error: (err as Error).message,
+              data: payload
+            });
+          }
+        }
+
+        // Report progress after fallback processing
+        if (onProgress) {
+          const processedSoFar = Math.min(batchEnd, validCases.length);
+          const progress = Math.round((processedSoFar / validCases.length) * 100);
+          onProgress(progress, totalUploaded);
+        }
       }
     }
 
@@ -1853,15 +1687,29 @@ export const customerCaseService = {
 
       const caseIds = cases.map((c: CustomerCase) => c.id);
 
-      const { data: allCallLogs, error: logsError } = await supabase
-        .from(CASE_CALL_LOG_TABLE)
-        .select('*')
-        .in('case_id', caseIds)
-        .order('created_at', { ascending: false });
+      // Chunk the case IDs to avoid 414 Request-URI Too Large errors
+      const chunkSize = 50;
+      const allCallLogs: any[] = [];
 
-      if (logsError) {
-        console.error('Error fetching call logs for export:', logsError);
+      for (let i = 0; i < caseIds.length; i += chunkSize) {
+        const chunk = caseIds.slice(i, i + chunkSize);
+        const { data: batchLogs, error: logsError } = await supabase
+          .from(CASE_CALL_LOG_TABLE)
+          .select('*')
+          .in('case_id', chunk)
+          .order('created_at', { ascending: false });
+
+        if (logsError) {
+          console.error(`Error fetching call logs chunk for export:`, logsError);
+          continue;
+        }
+
+        if (batchLogs) {
+          allCallLogs.push(...batchLogs);
+        }
       }
+
+
 
       const latestCallLogMap = new Map();
       const paymentLogsMap = new Map();
@@ -2462,7 +2310,153 @@ export const customerCaseService = {
       return [];
     }
   },
+  async getPaymentHistory(
+    tenantId: string,
+    employeeId?: string,
+    teamId?: string,
+    page: number = 0,
+    pageSize: number = 100
+  ): Promise<TeamInchargeCase[]> {
+    try {
+      // 0. Pre-fetch team telecallers if teamId is provided but employeeId is not
+      let teamEmployeeIds: string[] = [];
+      if (teamId && !employeeId) {
+        const { data: teamTelecallers } = await supabase
+          .from('team_telecallers')
+          .select('telecaller_id')
+          .eq('team_id', teamId);
 
+        if (teamTelecallers) {
+          teamEmployeeIds = teamTelecallers.map(t => t.telecaller_id);
+        }
+      }
+
+      // 1. Get payment logs for this tenant (paginated, recent first)
+      let logsQuery = supabase
+        .from(CASE_CALL_LOG_TABLE)
+        .select('case_id, created_at, amount_collected, call_status')
+        .eq('tenant_id', tenantId)
+        .gt('amount_collected', 0) // Only where amount > 0
+        .order('created_at', { ascending: false });
+
+      // Apply Telecaller Filter directly on logs
+      if (employeeId) {
+        logsQuery = logsQuery.eq('employee_id', employeeId);
+      } else if (teamId) {
+        // If filtering by team, only include logs from employees in that team
+        if (teamEmployeeIds.length > 0) {
+          logsQuery = logsQuery.in('employee_id', teamEmployeeIds);
+        } else {
+          // Team has no employees or invalid team, return empty to be safe
+          return [];
+        }
+      }
+
+      // Apply Pagination to the filtered logs
+      logsQuery = logsQuery.range(page * pageSize, (page + 1) * pageSize - 1);
+
+      const { data: logs, error: logsError } = await logsQuery;
+
+      if (logsError) {
+        console.error('Error fetching payment logs:', logsError);
+        return [];
+      }
+
+      if (!logs || logs.length === 0) {
+        return [];
+      }
+
+      // Map logs to aggregate/latest info for the case WITHIN THIS PAGE
+      // Note: If a case appears multiple times in the page, we aggregate it.
+      const paymentMap = new Map<string, { latestTime: string; totalAmount: number }>();
+      logs.forEach(log => {
+        const amount = typeof log.amount_collected === 'number' ? log.amount_collected : parseFloat(log.amount_collected);
+        const current = paymentMap.get(log.case_id) || { latestTime: log.created_at, totalAmount: 0 };
+
+        paymentMap.set(log.case_id, {
+          latestTime: log.created_at > current.latestTime ? log.created_at : current.latestTime,
+          totalAmount: current.totalAmount + (isNaN(amount) ? 0 : amount)
+        });
+      });
+
+      const caseIds = Array.from(paymentMap.keys());
+      if (caseIds.length === 0) return [];
+
+      const chunkSize = 20;
+      const chunks = [];
+      for (let i = 0; i < caseIds.length; i += chunkSize) {
+        chunks.push(caseIds.slice(i, i + chunkSize));
+      }
+
+      const allCases: TeamInchargeCase[] = [];
+
+      for (const chunk of chunks) {
+        let casesQuery = supabase
+          .from(CUSTOMER_CASE_TABLE)
+          .select(`
+            *,
+            telecaller:employees!telecaller_id(
+              id,
+              name,
+              emp_id
+            )
+          `)
+          .eq('tenant_id', tenantId)
+          .in('id', chunk)
+          .order('created_at', { ascending: false });
+
+        if (employeeId) {
+          casesQuery = casesQuery.eq('telecaller_id', employeeId);
+        }
+        if (teamId) {
+          casesQuery = casesQuery.eq('team_id', teamId);
+        }
+
+        const { data: cases, error: casesError } = await casesQuery;
+
+        if (casesError) {
+          console.error('Error fetching payment cases chunk:', casesError);
+          continue;
+        }
+
+        if (cases && cases.length > 0) {
+          const enrichedCases = cases.map((c) => {
+            const paymentInfo = paymentMap.get(c.id);
+            const details = c.case_data || {};
+
+            const getValueFromDetails = (keys: string[]) => {
+              for (const key of keys) {
+                if (details[key] !== undefined && details[key] !== null && details[key] !== '') {
+                  return String(details[key]);
+                }
+              }
+              return '';
+            };
+
+            return {
+              ...c,
+              outstanding_amount: c.outstanding_amount || getValueFromDetails(['totalOutstanding', 'outstandingAmount', 'pos', 'posAmount']) || '0',
+              latest_payment_date: paymentInfo?.latestTime,
+              today_payment_amount: paymentInfo?.totalAmount || 0,
+              latest_call_status: 'PAYMENT_RECEIVED'
+            };
+          });
+
+          allCases.push(...enrichedCases);
+        }
+      }
+
+      return allCases.sort((a, b) => {
+        const dateA = a.latest_payment_date ? new Date(a.latest_payment_date).getTime() : 0;
+        const dateB = b.latest_payment_date ? new Date(b.latest_payment_date).getTime() : 0;
+        return dateB - dateA;
+      }) as TeamInchargeCase[];
+
+    } catch (error) {
+      console.error('Unexpected error in getPaymentHistory:', error);
+      return [];
+    }
+  },
   async getGlobalStats() {
     try {
       const { data: cases, error } = await supabase
@@ -2681,14 +2675,29 @@ export const customerCaseService = {
     loanIds: string[]
   ): Promise<Array<{ loan_id: string; customer_name?: string; status: 'found' | 'not_found' | 'not_assigned' }>> {
     try {
-      // 1. Fetch all matching cases for these Loan IDs in the tenant
-      const { data: matchedCases, error } = await supabase
-        .from(CUSTOMER_CASE_TABLE)
-        .select('loan_id, customer_name, telecaller_id')
-        .eq('tenant_id', tenantId)
-        .in('loan_id', loanIds);
+      // 1. Fetch all matching cases for these Loan IDs in the tenant with chunking
+      const chunkSize = 50;
+      const matchedCases: any[] = [];
 
-      if (error) throw error;
+      for (let i = 0; i < loanIds.length; i += chunkSize) {
+        const chunk = loanIds.slice(i, i + chunkSize);
+        const { data: batchCases, error } = await supabase
+          .from(CUSTOMER_CASE_TABLE)
+          .select('loan_id, customer_name, telecaller_id')
+          .eq('tenant_id', tenantId)
+          .in('loan_id', chunk);
+
+        if (error) {
+          console.error('Error fetching batch cases for preview:', error);
+          continue;
+        }
+
+        if (batchCases) {
+          matchedCases.push(...batchCases);
+        }
+      }
+
+
 
       // 2. Build a map for lookup
       const loanMap = new Map<string, { name: string; assignedTo: string | null }>();
@@ -2712,6 +2721,29 @@ export const customerCaseService = {
     } catch (error) {
       console.error('❌ Preview failed:', error);
       throw error;
+    }
+
+  },
+
+  async getLiveMonitoringStats(tenantId: string, teamIds: string[]): Promise<any[]> {
+    try {
+      const { data, error } = await supabase.rpc('get_live_monitoring_stats', {
+        p_tenant_id: tenantId,
+        p_team_ids: teamIds
+      });
+
+      if (error) {
+        // If RPC not found, return empty array to prevent crash
+        if (error.code === '42883') { // Undefined function
+          console.error('RPC get_live_monitoring_stats not found. Please run the migration.');
+          return [];
+        }
+        throw error;
+      }
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching live monitoring stats:', error);
+      return [];
     }
   }
 };

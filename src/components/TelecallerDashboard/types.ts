@@ -64,6 +64,7 @@ export interface CustomerCase {
   custom_fields?: Record<string, unknown>;
   case_data?: Record<string, unknown>;
   is_retained?: boolean;
+  statusUpdateCount?: number;
 }
 
 export interface ColumnConfig {

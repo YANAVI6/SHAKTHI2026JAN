@@ -9,6 +9,7 @@ import { TeamService } from '../../../services/teamService';
 import { ColumnValidationModal } from '../forms/ColumnValidationModal';
 import { UploadValidationModal } from './UploadValidationModal';
 import { UploadErrorModal } from './UploadErrorModal';
+import { UploadProgressModal } from './UploadProgressModal';
 
 interface UploadCasesModalProps {
   isOpen: boolean;
@@ -58,6 +59,9 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
     warnings: Array<{ row: number; column: string; message: string }>;
   } | null>(null);
   const [parsedData, setParsedData] = useState<Array<Record<string, unknown>>>([]);
+
+  // Upload progress modal
+  const [showUploadProgressModal, setShowUploadProgressModal] = useState(false);
 
 
   // Load products and teams
@@ -349,11 +353,12 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
         };
       });
 
-      // Upload cases
+      // Show upload progress modal
       setUploadProgress(0);
       setUploadStats({ total: cases.length, uploaded: 0 });
+      setShowUploadProgressModal(true);
 
-      // Small delay to ensure the progress overlay renders before starting upload
+      // Small delay to ensure the progress modal renders before starting upload
       await new Promise(resolve => setTimeout(resolve, 100));
 
       const result = await customerCaseService.createBulkCases(cases, (progress: number, uploaded?: number) => {
@@ -364,18 +369,23 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
       });
 
       setUploadProgress(100);
-      setUploadStats({ total: cases.length, uploaded: cases.length });
+      setUploadStats({ total: cases.length, uploaded: result.totalUploaded });
       setUploadResult(result);
+
+      // Keep modal open for 1 second to show completion
+      await new Promise(resolve => setTimeout(resolve, 1000));
 
       if (result.errors.length === 0) {
         showNotification(notificationHelpers.success(
           'Upload Successful',
           `Successfully uploaded ${result.totalUploaded} cases`
         ));
+        setShowUploadProgressModal(false);
         onSuccess();
         handleClose();
       } else {
-        // Show detailed error modal
+        // Close progress modal and show error modal
+        setShowUploadProgressModal(false);
         setShowErrorModal(true);
 
         // Also show a brief notification
@@ -393,6 +403,7 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
       }
     } catch (error) {
       console.error('Upload error:', error);
+      setShowUploadProgressModal(false);
       showNotification(notificationHelpers.error(
         'Upload Failed',
         error instanceof Error ? error.message : 'Failed to upload cases'
@@ -969,6 +980,18 @@ export const UploadCasesModal: React.FC<UploadCasesModalProps> = ({
           errors={uploadResult.errors}
         />
       )}
+
+      {/* Upload Progress Modal */}
+      <UploadProgressModal
+        isOpen={showUploadProgressModal}
+        onClose={() => setShowUploadProgressModal(false)}
+        totalCases={uploadStats.total}
+        uploadedCases={uploadStats.uploaded}
+        errorCount={uploadResult?.errors.length || 0}
+        progress={uploadProgress}
+        isComplete={uploadProgress === 100 && !isLoading}
+        errors={uploadResult?.errors || []}
+      />
     </div>
   );
 };

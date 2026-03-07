@@ -18,6 +18,7 @@ export interface ActivityLog {
     rawLastActive: string;
     totalIdleMinutes: number;
     totalLoggedInMinutes: number;
+    breakCount: number;
 }
 
 export interface UserActivity {
@@ -32,6 +33,7 @@ export interface UserActivity {
     total_break_time: number;
     total_idle_time: number;
     logout_reason?: string;
+    break_count?: number;
 }
 
 const AVATAR_COLORS = [
@@ -60,11 +62,26 @@ function parseUTCDate(dateString: string): Date {
 
 function formatTime(dateString: string): string {
     const date = parseUTCDate(dateString);
-    return date.toLocaleTimeString('en-US', {
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: true
-    });
+    const now = new Date();
+    const isToday = date.getDate() === now.getDate() &&
+        date.getMonth() === now.getMonth() &&
+        date.getFullYear() === now.getFullYear();
+
+    if (isToday) {
+        return date.toLocaleTimeString('en-US', {
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+    } else {
+        return date.toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true
+        });
+    }
 }
 
 function getLastActiveText(lastActiveTime: string): string {
@@ -103,12 +120,16 @@ export const activityService = {
 
             const hasMore = employees.length === pageSize;
 
-            // Fetch activity sessions for all employees
-            // With the unique constraint (tenant_id, employee_id), there is only one record per user.
+            // Fetch activity sessions for today
+            const todayStart = new Date();
+            todayStart.setHours(0, 0, 0, 0);
+
             const { data: activities, error: actError } = await supabase
                 .from(USER_ACTIVITY_TABLE)
                 .select('*')
-                .eq('tenant_id', tenantId);
+                .eq('tenant_id', tenantId)
+                .gte('login_time', todayStart.toISOString())
+                .order('login_time', { ascending: false });
 
             if (actError) console.error('Error fetching activities:', actError);
 
@@ -143,7 +164,8 @@ export const activityService = {
                         rawLoginTime: '',
                         rawLastActive: '',
                         totalIdleMinutes: 0,
-                        totalLoggedInMinutes: 0
+                        totalLoggedInMinutes: 0,
+                        breakCount: 0
                     };
                 }
 
@@ -151,7 +173,6 @@ export const activityService = {
                 const firstSession = empActs[0];
 
                 // 2. Current Status & Active Session
-                // Find potential active session (no logout time)
                 const activeSession = empActs.find(a => !a.logout_time);
 
                 let currentStatus: 'Online' | 'Break' | 'Offline' | 'Idle' = 'Offline';
@@ -169,17 +190,13 @@ export const activityService = {
 
                     if (currentStatus === 'Online' && minutesInactive > 3) {
                         currentStatus = 'Idle';
-                    } else if (currentStatus === 'Online' && minutesInactive > 5) {
-                        // Logic handled by auto-logout triggers usually, but for display:
-                        // currentStatus = 'Idle'; // Still idle until actually logged out
                     }
                 } else {
-                    // If no active session, valid status is Offline, but check last session
                     const lastSession = empActs[empActs.length - 1];
                     rawLastActive = lastSession.logout_time || '';
                 }
 
-                // 3. Total Logged-in Time
+                // 3. Total Logged-in & Idle Time
                 let totalLoggedInMinutes = 0;
                 let totalIdleMinutes = 0;
 
@@ -201,43 +218,23 @@ export const activityService = {
                 });
 
                 // 4. Total Break Calculation
-                // Rule: Break = Time between sessions (Logout -> Next Login)
                 let totalBreakMinutes = 0;
-                for (let i = 0; i < empActs.length - 1; i++) {
-                    const currentSessionEnd = empActs[i].logout_time ? parseUTCDate(empActs[i].logout_time as string) : null;
-                    const nextSessionStart = parseUTCDate(empActs[i + 1].login_time);
 
-                    if (currentSessionEnd) {
-                        const breakDuration = Math.floor((nextSessionStart.getTime() - currentSessionEnd.getTime()) / 60000);
-                        if (breakDuration > 0) {
-                            totalBreakMinutes += breakDuration;
-                        }
-                    }
-                }
-
-                // Add "In-session" breaks (manual break mode)
-                // The previous logic stored manual breaks in 'total_break_time'. 
-                // We should include this if the user considers "Manual Break" distinct from "Logout".
-                // Based on "For every logout–login cycle... Break start = Logout time", it implies logout IS the break.
-                // However, the system has a "Take Break" button which keeps the session but changes status.
-                // We should include 'total_break_time' from sessions too?
-                // "Auto logout is counted as a Break".
-                // Let's sum field `total_break_time` from DB which tracks manual breaks.
+                // Sum field `total_break_time` from DB which tracks manual breaks
                 const manualBreakMinutes = empActs.reduce((acc, curr) => acc + (curr.total_break_time || 0), 0);
                 totalBreakMinutes += manualBreakMinutes;
 
-                // If currently on "Break" status (manual break)
+                // 4b. Break Count
+                const totalBreaks = empActs.reduce((acc, curr) => acc + (curr.break_count || 0), 0);
+
+                // If currently on "Break" status
                 if (currentStatus === 'Break' && currentBreakStart) {
                     const breakStart = parseUTCDate(currentBreakStart);
                     totalBreakMinutes += Math.floor((now.getTime() - breakStart.getTime()) / 60000);
                 }
 
                 // 5. Productive Time
-                // Productive Time = Total Logged-in Time − Idle Time − Manual Break Time within session
-                // (Note: Total Logged-in includes manual breaks, so we subtract them. 
-                //  Inter-session breaks are NOT in Total Logged-in, so don't subtract those.)
                 const sessionBreakMinutes = manualBreakMinutes + (currentStatus === 'Break' && currentBreakStart ? Math.floor((now.getTime() - parseUTCDate(currentBreakStart).getTime()) / 60000) : 0);
-
                 const productiveMinutes = Math.max(0, totalLoggedInMinutes - totalIdleMinutes - sessionBreakMinutes);
 
                 // Format helpers
@@ -264,7 +261,8 @@ export const activityService = {
                     rawLoginTime: firstSession.login_time,
                     rawLastActive: rawLastActive || '',
                     totalIdleMinutes: totalIdleMinutes,
-                    totalLoggedInMinutes: totalLoggedInMinutes
+                    totalLoggedInMinutes: totalLoggedInMinutes,
+                    breakCount: totalBreaks
                 };
             });
 
@@ -275,7 +273,6 @@ export const activityService = {
         }
     },
 
-    // Simplified stats count - consistent with new logic if needed, but quick count is fine for now
     async getActivityStats(tenantId: string): Promise<{
         total: number;
         online: number;
@@ -283,7 +280,6 @@ export const activityService = {
         idle: number;
     }> {
         try {
-            // Re-using logs logic ensures consistency
             const { logs } = await this.getActivityLogs(tenantId, 0, 1000);
 
             return {
@@ -298,7 +294,6 @@ export const activityService = {
         }
     },
 
-    // Track logout
     async trackLogout(employeeId: string, reason?: string): Promise<void> {
         try {
             console.log('🔴 Tracking logout for employee:', employeeId, 'Reason:', reason);
@@ -339,11 +334,8 @@ export const activityService = {
         }
     },
 
-    // Track logout using sendBeacon for page unload scenarios
-    // This is synchronous and more reliable during beforeunload/pagehide events
     trackLogoutBeacon(employeeId: string, reason?: string): boolean {
         try {
-            // Get the Supabase URL and anon key from environment
             const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
             const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
@@ -358,11 +350,8 @@ export const activityService = {
                 logout_reason: reason || 'Page unload'
             };
 
-            // Create the REST API URL for updating the activity table
             const url = `${supabaseUrl}/rest/v1/${USER_ACTIVITY_TABLE}?employee_id=eq.${employeeId}&logout_time=is.null`;
 
-            // Use fetch with keepalive flag which is designed for page unload scenarios
-            // The keepalive flag ensures the request completes even if page unloads
             fetch(url, {
                 method: 'PATCH',
                 headers: {
@@ -377,7 +366,7 @@ export const activityService = {
                 console.error('Error in beacon logout:', err);
             });
 
-            // Also sync chat status via beacon
+            // Sync chat status via beacon
             const chatUrl = `${supabaseUrl}/rest/v1/chat_user_status?user_id=eq.${employeeId}`;
             fetch(chatUrl, {
                 method: 'PATCH',
@@ -403,93 +392,51 @@ export const activityService = {
         }
     },
 
-    // Update last active time (heartbeat)
     async updateLastActive(employeeId: string, tenantId: string, force: boolean = false): Promise<void> {
         try {
             const lastUpdateKey = `last_activity_update_${employeeId}`;
             const lastUpdate = localStorage.getItem(lastUpdateKey);
             const now = Date.now();
 
+            // Throttle: Only update every 60s unless forced
             if (!force && lastUpdate && now - parseInt(lastUpdate) < 60000) {
                 return;
             }
 
-            const { data: sessions } = await supabase
-                .from(USER_ACTIVITY_TABLE)
-                .select('id, status, last_active_time, total_idle_time')
-                .eq('employee_id', employeeId)
-                .is('logout_time', null)
-                .order('login_time', { ascending: false });
+            console.log('💓 Sending heartbeat via RPC for:', employeeId);
 
-            if (!sessions || sessions.length === 0) {
-                if (force) {
-                    console.log('🔄 No active session found for heartbeat, attempting to resume (forced)...');
-                    await this.resumeSession(employeeId, tenantId);
-                } else {
-                    // Regular heartbeat shouldn't resume a session that was explicitly closed
-                    console.log('ℹ️ No active session found for heartbeat, skipping resumption.');
-                }
-                localStorage.setItem(lastUpdateKey, now.toString());
-                return;
+            const { error } = await supabase.rpc('update_user_heartbeat', {
+                p_employee_id: employeeId,
+                p_tenant_id: tenantId
+            });
+
+            if (error) {
+                console.error('❌ Error in heartbeat RPC:', error);
+                throw error;
             }
-
-            if (sessions.length > 1) {
-                // This shouldn't happen with the unique constraint, but keeping for safety/cleanup
-                const newestSessionId = sessions[0].id;
-                await supabase
-                    .from(USER_ACTIVITY_TABLE)
-                    .delete()
-                    .eq('employee_id', employeeId)
-                    .neq('id', newestSessionId);
-            }
-
-            const session = sessions[0];
-            const updatePayload: Partial<UserActivity> = {
-                last_active_time: new Date().toISOString()
-            };
-
-            if (session && session.status === 'Idle') {
-                const lastActive = parseUTCDate(session.last_active_time);
-                const idleDuration = Math.floor((now - lastActive.getTime()) / 60000);
-
-                updatePayload.status = 'Online';
-                updatePayload.total_idle_time = (session.total_idle_time || 0) + idleDuration;
-            } else if (session && session.status === 'Break') {
-                // If on break, we just update last_active_time but DON'T change status to Online
-                // and don't count idle time.
-            }
-
-            const { error } = await supabase
-                .from(USER_ACTIVITY_TABLE)
-                .update(updatePayload)
-                .eq('id', session.id)
-                .is('logout_time', null);
-
-            if (error) throw error;
-
-            // Sync with Chat Status if status changed or just to refresh last_seen
-            await this.syncChatStatus(employeeId, tenantId, updatePayload.status === 'Online' ? 'online' : (session.status === 'Break' ? 'break' : (session.status === 'Idle' ? 'idle' : 'online')));
 
             localStorage.setItem(lastUpdateKey, now.toString());
+
+            // Sync chat status (optimistic update or fetch from DB? Let's just keep 'online')
+            // The RPC handles the status logic, but we might want to sync chat
+            await this.syncChatStatus(employeeId, tenantId, 'online');
+
         } catch (error) {
             console.error('Error updating last active:', error);
         }
     },
 
-    // Set status to Idle explicitly
     async setIdle(employeeId: string): Promise<void> {
         try {
             await supabase
                 .from(USER_ACTIVITY_TABLE)
                 .update({
                     status: 'Idle'
-                    // We don't update last_active_time here so we can calculate duration later
                 })
                 .eq('employee_id', employeeId)
                 .is('logout_time', null)
-                .neq('status', 'Break'); // Don't set to Idle if already on Break
+                .neq('status', 'Break');
 
-            // Sync with Chat Status
             const { data: userData } = await supabase
                 .from(USER_ACTIVITY_TABLE)
                 .select('tenant_id')
@@ -503,63 +450,35 @@ export const activityService = {
         }
     },
 
-    // Resume or create a session (used for page refresh restoration)
     async resumeSession(employeeId: string, tenantId: string): Promise<void> {
         try {
-            console.log('🔄 Resuming activity session for employee:', employeeId);
+            console.log('🔄 Resuming activity session for employee (RPC):', employeeId);
 
-            // 1. Check if a record already exists to preserve totals
-            const { data: existingActivity } = await supabase
-                .from(USER_ACTIVITY_TABLE)
-                .select('login_time, total_break_time, total_idle_time')
-                .eq('tenant_id', tenantId)
-                .eq('employee_id', employeeId)
-                .maybeSingle();
+            const { error } = await supabase.rpc('resume_user_session', {
+                p_tenant_id: tenantId,
+                p_employee_id: employeeId,
+                p_status: 'Online'
+            });
 
-            const now = new Date();
-            const isSameDay = existingActivity &&
-                new Date(existingActivity.login_time).toDateString() === now.toDateString();
-
-            // 2. Use upsert to restore "Online" status and preserve fields
-            const { error: upsertError } = await supabase
-                .from(USER_ACTIVITY_TABLE)
-                .upsert({
-                    tenant_id: tenantId,
-                    employee_id: employeeId,
-                    login_time: isSameDay ? existingActivity.login_time : now.toISOString(),
-                    last_active_time: now.toISOString(),
-                    status: 'Online',
-                    logout_time: null,
-                    logout_reason: null,
-                    total_break_time: isSameDay ? existingActivity.total_break_time : (existingActivity?.total_break_time || 0),
-                    total_idle_time: isSameDay ? existingActivity.total_idle_time : (existingActivity?.total_idle_time || 0)
-                }, {
-                    onConflict: 'tenant_id,employee_id',
-                    ignoreDuplicates: false
-                });
-
-            if (upsertError) {
-                console.error('❌ Error in resumeSession upsert:', upsertError);
-                throw upsertError;
+            if (error) {
+                console.error('❌ Error in resumeSession RPC:', error);
+                throw error;
             }
 
-            console.log('✅ Session resumed successfully for:', employeeId);
+            console.log('✅ Session resumed successfully via RPC for:', employeeId);
         } catch (error) {
             console.error('❌ Error resuming session:', error);
         }
     },
 
-    // Sync activity status with chat status table
     async syncChatStatus(userId: string, tenantId: string, status: string): Promise<void> {
         try {
-            // Map activity status to chat status
             let chatStatus = status.toLowerCase();
-            if (chatStatus === 'online') chatStatus = 'online';
-            else if (chatStatus === 'break') chatStatus = 'break';
-            else if (chatStatus === 'idle') chatStatus = 'idle';
-            else if (chatStatus === 'offline') chatStatus = 'offline';
+            if (chatStatus !== 'online' && chatStatus !== 'break' && chatStatus !== 'idle' && chatStatus !== 'offline') {
+                chatStatus = 'online';
+            }
 
-            await supabase
+            const { error } = await supabase
                 .from('chat_user_status')
                 .upsert({
                     user_id: userId,
@@ -567,28 +486,27 @@ export const activityService = {
                     status: chatStatus,
                     last_seen: new Date().toISOString()
                 }, { onConflict: 'user_id' });
+
+            if (error) {
+                console.error('❌ Error syncing chat status:', error);
+            }
         } catch (error) {
-            console.error('Error syncing chat status:', error);
+            console.error('❌ Exception syncing chat status:', error);
         }
     },
 
-    // Start a break for an employee
     async startBreak(employeeId: string): Promise<void> {
         try {
             console.log('🟠 Starting break for employee:', employeeId);
 
-            // 1. Fetch the active session
             const { data: session, error: fetchError } = await supabase
                 .from(USER_ACTIVITY_TABLE)
-                .select('id')
+                .select('id, break_count')
                 .eq('employee_id', employeeId)
                 .is('logout_time', null)
                 .maybeSingle();
 
-            if (fetchError) {
-                console.error('❌ Error fetching session for break:', JSON.stringify(fetchError, null, 2));
-                throw fetchError;
-            }
+            if (fetchError) throw fetchError;
 
             if (!session) {
                 console.warn('⚠️ No active session found to start break');
@@ -597,27 +515,24 @@ export const activityService = {
 
             const now = new Date().toISOString();
 
-            // 2. Update the session
             const { error: updateError } = await supabase
                 .from(USER_ACTIVITY_TABLE)
                 .update({
                     status: 'Break',
                     current_break_start: now,
-                    last_active_time: now
+                    last_active_time: now,
+                    break_count: (session.break_count || 0) + 1
                 })
                 .eq('id', session.id);
 
-            if (updateError) {
-                console.error('❌ Error starting break:', JSON.stringify(updateError, null, 2));
-                throw updateError;
-            }
+            if (updateError) throw updateError;
 
-            // Sync with Chat Status
             const { data: userData } = await supabase
                 .from(USER_ACTIVITY_TABLE)
                 .select('tenant_id')
                 .eq('employee_id', employeeId)
                 .maybeSingle();
+
             if (userData?.tenant_id) {
                 await this.syncChatStatus(employeeId, userData.tenant_id, 'break');
             }
@@ -629,7 +544,6 @@ export const activityService = {
         }
     },
 
-    // End a break for an employee
     async endBreak(employeeId: string): Promise<void> {
         try {
             console.log('🟢 Ending break for employee:', employeeId);
@@ -641,10 +555,7 @@ export const activityService = {
                 .is('logout_time', null)
                 .maybeSingle();
 
-            if (fetchError) {
-                console.error('❌ Error fetching session to end break:', JSON.stringify(fetchError, null, 2));
-                throw fetchError;
-            }
+            if (fetchError) throw fetchError;
 
             if (!session || !session.current_break_start) {
                 console.log('⚠️ No active break session found');
@@ -667,17 +578,14 @@ export const activityService = {
                 })
                 .eq('id', session.id);
 
-            if (updateError) {
-                console.error('❌ Error updating break end:', JSON.stringify(updateError, null, 2));
-                throw updateError;
-            }
+            if (updateError) throw updateError;
 
-            // Sync with Chat Status
             const { data: userData } = await supabase
                 .from(USER_ACTIVITY_TABLE)
                 .select('tenant_id')
                 .eq('employee_id', employeeId)
                 .maybeSingle();
+
             if (userData?.tenant_id) {
                 await this.syncChatStatus(employeeId, userData.tenant_id, 'online');
             }
@@ -703,13 +611,10 @@ export const activityService = {
                 .maybeSingle();
 
             if (error) {
-                console.error('Error fetching office hours:', error);
                 return null;
             }
 
-            if (!data) {
-                return null;
-            }
+            if (!data) return null;
 
             return {
                 officeStartTime: data.office_start_time,
@@ -750,4 +655,126 @@ export const activityService = {
             throw error;
         }
     },
+
+    async downloadDailyReport(tenantId: string): Promise<string> {
+        const { logs } = await this.getActivityLogs(tenantId, 0, 10000);
+
+        const headers = ['Employee', 'Team', 'Date', 'First Login', 'Last Logout', 'Total Break Time', 'Break Count', 'Productive Time', 'Status'];
+        const csvRows = [headers.join(',')];
+
+        const todayStr = new Date().toLocaleDateString();
+
+        logs.forEach(log => {
+            csvRows.push([
+                `"${log.employeeName}"`,
+                `"${log.teamName}"`,
+                `"${todayStr}"`,
+                `"${log.loginTime}"`,
+                `"${log.status === 'Offline' && log.rawLastActive ? formatTime(log.rawLastActive) : 'Active'}"`,
+                `"${log.totalBreakTime}"`,
+                `"${log.breakCount}"`,
+                `"${log.productiveTime}"`,
+                `"${log.status}"`
+            ].join(','));
+        });
+
+        return csvRows.join('\n');
+    },
+
+    async downloadMonthlyReport(tenantId: string): Promise<string> {
+        const startOfMonth = new Date();
+        startOfMonth.setDate(1);
+        startOfMonth.setHours(0, 0, 0, 0);
+
+        const { data: employees, error: empError } = await supabase
+            .from(EMPLOYEE_TABLE)
+            .select('id, name, role')
+            .eq('tenant_id', tenantId);
+
+        if (empError) throw empError || new Error('Failed to fetch employees');
+
+        const employeeMap = new Map(employees?.map(e => [e.id, e]) || []);
+
+        const { data: activities, error } = await supabase
+            .from(USER_ACTIVITY_TABLE)
+            .select('*')
+            .eq('tenant_id', tenantId)
+            .gte('login_time', startOfMonth.toISOString())
+            .order('login_time', { ascending: false });
+
+        if (error || !activities) throw error || new Error('No data');
+
+        const headers = ['Date', 'Employee', 'Role', 'Status', 'First Login', 'Last Logout', 'Total Break Time', 'Break Count', 'Productive Time'];
+
+        const dailyStats = new Map<string, any>();
+
+        const getDateKey = (dateStr: string) => {
+            return new Date(dateStr).toLocaleDateString();
+        };
+
+        activities.forEach(act => {
+            const dateKey = getDateKey(act.login_time);
+            const key = `${dateKey}_${act.employee_id}`;
+
+            if (!dailyStats.has(key)) {
+                const emp = employeeMap.get(act.employee_id);
+                dailyStats.set(key, {
+                    date: dateKey,
+                    employeeName: emp?.name || 'Unknown',
+                    role: emp?.role || 'Telecaller',
+                    firstLogin: act.login_time,
+                    lastLogout: act.logout_time,
+                    totalBreakMins: act.total_break_time || 0,
+                    breakCount: act.break_count || 0,
+                    totalIdleMins: act.total_idle_time || 0,
+                    sessions: [act]
+                });
+            } else {
+                const stat = dailyStats.get(key);
+                stat.sessions.push(act);
+                stat.totalBreakMins += (act.total_break_time || 0);
+                stat.breakCount += (act.break_count || 0);
+                stat.totalIdleMins += (act.total_idle_time || 0);
+                if (new Date(act.login_time) < new Date(stat.firstLogin)) stat.firstLogin = act.login_time;
+                if (!stat.lastLogout || (act.logout_time && new Date(act.logout_time) > new Date(stat.lastLogout))) {
+                    if (!act.logout_time) stat.lastLogout = null;
+                    else stat.lastLogout = act.logout_time;
+                }
+            }
+        });
+
+        const csvRows = [headers.join(',')];
+
+        dailyStats.forEach(stat => {
+            let totalLoggedInMinutes = 0;
+            stat.sessions.forEach((s: any) => {
+                const start = parseUTCDate(s.login_time);
+                const end = s.logout_time ? parseUTCDate(s.logout_time) : new Date();
+                const duration = Math.floor((end.getTime() - start.getTime()) / 60000);
+                totalLoggedInMinutes += Math.max(0, duration);
+            });
+
+            const productiveMins = Math.max(0, totalLoggedInMinutes - stat.totalIdleMins - stat.totalBreakMins);
+
+            const formatDur = (m: number) => {
+                const h = Math.floor(m / 60);
+                const min = m % 60;
+                return `${h}h ${min}m`;
+            };
+
+            csvRows.push([
+                `"${stat.date}"`,
+                `"${stat.employeeName}"`,
+                `"${stat.role}"`,
+                `"${stat.lastLogout ? 'Offline' : 'Online'}"`,
+                `"${formatTime(stat.firstLogin)}"`,
+                `"${stat.lastLogout ? formatTime(stat.lastLogout) : 'Active'}"`,
+                `"${formatDur(stat.totalBreakMins)}"`,
+                `"${stat.breakCount}"`,
+                `"${formatDur(productiveMins)}"`
+            ].join(','));
+        });
+
+        return csvRows.join('\n');
+    }
 };

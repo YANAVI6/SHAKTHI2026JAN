@@ -36,12 +36,14 @@ import {
   Clock,
   AlertCircle,
   Monitor,
-  LayoutGrid
+  LayoutGrid,
+  History
 } from 'lucide-react';
 import { NotificationManager } from './sections/NotificationManager';
 import { CaseListSection } from '../shared/CaseListSection';
 import { PTPAlertSection } from '../shared/reports/PTPAlertSection';
 import { CallbackAlertSection } from '../shared/reports/CallbackAlertSection';
+import { PaymentHistorySection } from '../shared/reports/PaymentHistorySection';
 import { CaseDetailsModal } from '../TelecallerDashboard/CaseDetailsModal';
 import { CustomerCase } from '../TelecallerDashboard/types';
 import { useToast } from '../TelecallerDashboard/hooks';
@@ -240,6 +242,7 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
     { name: 'Reports Dashboard', icon: FileText, active: activeSection === 'reports', onClick: () => setActiveSection('reports') },
     { name: 'PTP Alert', icon: AlertCircle, active: activeSection === 'ptp-alerts', onClick: () => setActiveSection('ptp-alerts') },
     { name: 'Callback Alert', icon: Bell, active: activeSection === 'callback-alerts', onClick: () => setActiveSection('callback-alerts') },
+    { name: 'Performance Dashboard', icon: History, active: activeSection === 'payment-history', onClick: () => setActiveSection('payment-history') },
   ];
 
 
@@ -256,7 +259,11 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
           />
         );
       case 'live-monitoring':
-        return <LiveMonitoring />;
+        return (
+          <LiveMonitoring
+            onCaseClick={(caseItem) => setSelectedCase(caseItem as unknown as CustomerCase)}
+          />
+        );
       case 'users':
         return (
           <UserManagement
@@ -297,6 +304,14 @@ export const CompanyAdminDashboard: React.FC<CompanyAdminDashboardProps> = ({ us
       case 'callback-alerts':
         return (
           <CallbackAlertSection
+            user={user}
+            teamId={selectedTeamId}
+            onCaseClick={(caseItem) => setSelectedCase(caseItem as unknown as CustomerCase)}
+          />
+        );
+      case 'payment-history':
+        return (
+          <PaymentHistorySection
             user={user}
             teamId={selectedTeamId}
             onCaseClick={(caseItem) => setSelectedCase(caseItem as unknown as CustomerCase)}

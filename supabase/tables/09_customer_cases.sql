@@ -63,7 +63,7 @@ CREATE TABLE IF NOT EXISTS customer_cases (
   created_at timestamptz DEFAULT now(),
   updated_at timestamptz DEFAULT now(),
 
-  UNIQUE(tenant_id, loan_id)
+  UNIQUE(tenant_id, team_id, loan_id)
 );
 
 -- Indexes

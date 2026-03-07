@@ -5,6 +5,8 @@ import { LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, R
 import { supabase } from '../../../lib/supabase';
 import { useAuth } from '../../../contexts/AuthContext';
 import type { Employee } from '../../../types/employee';
+import { PerformanceMetrics } from '../../shared/reports/PerformanceMetrics';
+import { AnalyticsService, PerformanceStats } from '../../../services/analyticsService';
 
 interface DashboardOverviewProps {
   employees: Employee[];
@@ -58,6 +60,13 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [loading, setLoading] = useState(true);
   const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
   const [teamPerformance, setTeamPerformance] = useState<TeamPerformance[]>([]);
+  const [performanceStats, setPerformanceStats] = useState<PerformanceStats>({
+    totalCases: 0,
+    totalPOS: 0,
+    totalCollected: 0,
+    statusDistribution: []
+  });
+  const [isPerformanceLoading, setIsPerformanceLoading] = useState(false);
 
   const activeEmployees = useMemo(
     () => employees.filter(emp => emp.status === 'active'),
@@ -71,56 +80,76 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       try {
         setLoading(true);
 
-        // Fetch total and active cases
-        const { count: totalCases } = await supabase
-          .from('customer_cases')
-          .select('*', { count: 'exact', head: true })
-          .eq('tenant_id', user.tenantId);
-
-        const { count: activeCases } = await supabase
-          .from('customer_cases')
-          .select('*', { count: 'exact', head: true })
-          .eq('tenant_id', user.tenantId)
-          .neq('case_status', 'closed');
-
-        // Fetch total collected amount
-        const { data: collectionData } = await supabase
-          .from('customer_cases')
-          .select('total_collected_amount')
-          .eq('tenant_id', user.tenantId);
-
-        const totalCollected = collectionData?.reduce((sum, c) => sum + (c.total_collected_amount || 0), 0) || 0;
-
-        // Fetch today's collection
         const today = new Date();
         today.setHours(0, 0, 0, 0);
 
-        const { data: todayLogs } = await supabase
-          .from('case_call_logs')
-          .select('amount_collected')
-          .eq('tenant_id', user.tenantId)
-          .gte('created_at', today.toISOString())
-          .gt('amount_collected', 0);
+        // --- Fire all independent top-level queries in parallel ---
+        const [
+          { count: totalCases },
+          { count: activeCases },
+          { data: collectionData },
+          { data: todayLogs },
+          { count: pendingFollowups },
+          { count: overdueCallbacks },
+          { data: teams },
+        ] = await Promise.all([
+          supabase
+            .from('customer_cases')
+            .select('*', { count: 'exact', head: true })
+            .eq('tenant_id', user.tenantId),
 
+          supabase
+            .from('customer_cases')
+            .select('*', { count: 'exact', head: true })
+            .eq('tenant_id', user.tenantId)
+            .neq('case_status', 'closed'),
+
+          // Sum total_collected_amount server-side by only selecting needed column
+          supabase
+            .from('customer_cases')
+            .select('total_collected_amount')
+            .eq('tenant_id', user.tenantId),
+
+          supabase
+            .from('case_call_logs')
+            .select('amount_collected')
+            .eq('tenant_id', user.tenantId)
+            .gte('created_at', today.toISOString())
+            .gt('amount_collected', 0),
+
+          supabase
+            .from('customer_cases')
+            .select('*', { count: 'exact', head: true })
+            .eq('tenant_id', user.tenantId)
+            .lte('next_action_date', new Date().toISOString()),
+
+          supabase
+            .from('case_call_logs')
+            .select('*', { count: 'exact', head: true })
+            .eq('tenant_id', user.tenantId)
+            .eq('call_status', 'CALL_BACK')
+            .eq('callback_completed', false)
+            .lt('callback_datetime', new Date().toISOString()),
+
+          supabase
+            .from('teams')
+            .select('id, name')
+            .eq('tenant_id', user.tenantId),
+        ]);
+
+        const totalCollected = collectionData?.reduce((sum, c) => sum + (c.total_collected_amount || 0), 0) || 0;
         const todayCollection = todayLogs?.reduce((sum, log) => sum + (log.amount_collected || 0), 0) || 0;
 
-        // Fetch pending follow-ups
-        const { count: pendingFollowups } = await supabase
-          .from('customer_cases')
-          .select('*', { count: 'exact', head: true })
-          .eq('tenant_id', user.tenantId)
-          .lte('next_action_date', new Date().toISOString());
+        setStats({
+          totalCases: totalCases || 0,
+          activeCases: activeCases || 0,
+          totalCollected,
+          todayCollection,
+          pendingFollowups: pendingFollowups || 0,
+          overdueCallbacks: overdueCallbacks || 0,
+        });
 
-        // Fetch overdue callbacks
-        const { count: overdueCallbacks } = await supabase
-          .from('case_call_logs')
-          .select('*', { count: 'exact', head: true })
-          .eq('tenant_id', user.tenantId)
-          .eq('call_status', 'CALL_BACK')
-          .eq('callback_completed', false)
-          .lt('callback_datetime', new Date().toISOString());
-
-        // Fetch last 7 days data for charts
+        // --- Fire all 7-day chart queries in parallel (14 queries → all at once) ---
         const last7Days = Array.from({ length: 7 }, (_, i) => {
           const date = new Date();
           date.setDate(date.getDate() - (6 - i));
@@ -131,27 +160,24 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         const chartDataPromises = last7Days.map(async (date) => {
           const nextDay = new Date(date);
           nextDay.setDate(nextDay.getDate() + 1);
-
-          const { data: dayLogs } = await supabase
-            .from('case_call_logs')
-            .select('amount_collected')
-            .eq('tenant_id', user.tenantId)
-            .gte('created_at', date.toISOString())
-            .lt('created_at', nextDay.toISOString())
-            .gt('amount_collected', 0);
-
-          const dayCollection = dayLogs?.reduce((sum, log) => sum + (log.amount_collected || 0), 0) || 0;
-
-          const { count: dayCases } = await supabase
-            .from('customer_cases')
-            .select('*', { count: 'exact', head: true })
-            .eq('tenant_id', user.tenantId)
-            .gte('created_at', date.toISOString())
-            .lt('created_at', nextDay.toISOString());
-
+          const [{ data: dayLogs }, { count: dayCases }] = await Promise.all([
+            supabase
+              .from('case_call_logs')
+              .select('amount_collected')
+              .eq('tenant_id', user.tenantId)
+              .gte('created_at', date.toISOString())
+              .lt('created_at', nextDay.toISOString())
+              .gt('amount_collected', 0),
+            supabase
+              .from('customer_cases')
+              .select('*', { count: 'exact', head: true })
+              .eq('tenant_id', user.tenantId)
+              .gte('created_at', date.toISOString())
+              .lt('created_at', nextDay.toISOString()),
+          ]);
           return {
             date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
-            collection: dayCollection,
+            collection: dayLogs?.reduce((sum, log) => sum + (log.amount_collected || 0), 0) || 0,
             cases: dayCases || 0,
           };
         });
@@ -159,46 +185,30 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         const resolvedChartData = await Promise.all(chartDataPromises);
         setChartData(resolvedChartData);
 
-        // Fetch team performance data
-        const { data: teams } = await supabase
-          .from('teams')
-          .select('id, name')
-          .eq('tenant_id', user.tenantId);
-
-        if (teams) {
+        // --- Fire team performance queries in parallel ---
+        if (teams && teams.length > 0) {
           const teamPerfPromises = teams.slice(0, 6).map(async (team) => {
-            const { count: teamCases } = await supabase
-              .from('customer_cases')
-              .select('*', { count: 'exact', head: true })
-              .eq('team_id', team.id)
-              .neq('case_status', 'closed');
-
-            const { data: teamCollectionData } = await supabase
-              .from('customer_cases')
-              .select('total_collected_amount')
-              .eq('team_id', team.id);
-
-            const teamCollection = teamCollectionData?.reduce((sum, c) => sum + (c.total_collected_amount || 0), 0) || 0;
-
+            const [{ count: teamCases }, { data: teamCollectionData }] = await Promise.all([
+              supabase
+                .from('customer_cases')
+                .select('*', { count: 'exact', head: true })
+                .eq('team_id', team.id)
+                .neq('case_status', 'closed'),
+              supabase
+                .from('customer_cases')
+                .select('total_collected_amount')
+                .eq('team_id', team.id),
+            ]);
             return {
               name: team.name,
               cases: teamCases || 0,
-              collection: teamCollection,
+              collection: teamCollectionData?.reduce((sum, c) => sum + (c.total_collected_amount || 0), 0) || 0,
             };
           });
-
           const resolvedTeamPerf = await Promise.all(teamPerfPromises);
           setTeamPerformance(resolvedTeamPerf);
         }
 
-        setStats({
-          totalCases: totalCases || 0,
-          activeCases: activeCases || 0,
-          totalCollected,
-          todayCollection,
-          pendingFollowups: pendingFollowups || 0,
-          overdueCallbacks: overdueCallbacks || 0,
-        });
       } catch (error) {
         console.error('Error fetching dashboard stats:', error);
       } finally {
@@ -207,6 +217,20 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     };
 
     fetchDashboardStats();
+
+    const fetchPerformance = async () => {
+      if (!user?.tenantId) return;
+      setIsPerformanceLoading(true);
+      try {
+        const stats = await AnalyticsService.getPerformanceStats(user.tenantId);
+        setPerformanceStats(stats);
+      } catch (error) {
+        console.error('Error fetching performance stats:', error);
+      } finally {
+        setIsPerformanceLoading(false);
+      }
+    };
+    fetchPerformance();
   }, [user?.tenantId]);
 
   return (
@@ -268,6 +292,12 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Global Performance Summary */}
+      <div>
+        <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Global Performance Summary</h3>
+        <PerformanceMetrics stats={performanceStats} isLoading={isPerformanceLoading} />
       </div>
 
       {/* Growth Charts */}
@@ -441,7 +471,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             <Target className="w-8 h-8 text-white" />
           </div>
         </div>
-        <div className="grid grid-cols-3 gap-4 mt-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6">
           <div className="bg-white/10 rounded-lg p-3 backdrop-blur-sm">
             <p className="text-xs text-purple-100">Collection Rate</p>
             <p className="text-xl font-bold mt-1">{stats.totalCases > 0 ? ((stats.totalCollected / stats.totalCases).toFixed(0)) : '0'}</p>

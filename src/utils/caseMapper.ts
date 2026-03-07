@@ -56,6 +56,7 @@ export const mapServiceCaseToDashboardCase = (serviceCase: ServiceCustomerCase):
         buckets: sCase.buckets || getValueFromDetails(['buckets', 'Buckets', 'Bucket']) || '',
         remarks: sCase.remarks || '',
         total_collected_amount: sCase.total_collected_amount || 0,
+        statusUpdateCount: sCase.status_update_count || 0,
         // Include all extra fields from case_data for complete details coverage
         ...details,
         // Include all custom fields if they exist from DB

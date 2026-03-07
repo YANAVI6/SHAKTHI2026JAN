@@ -56,6 +56,8 @@ import { useToast } from './hooks';
 import { PerformanceMetrics, TelecallerTarget } from '../../services/telecallerTargetService';
 import { BreakManager } from './BreakManager';
 import { CallResponseUploadModal } from './CallResponseUploadModal';
+import { PaymentHistorySection } from '../shared/reports/PaymentHistorySection';
+import { History } from 'lucide-react';
 
 // Types & Utilities
 import { CustomerCase as DashboardCustomerCase } from './types';
@@ -282,13 +284,19 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
   // Load teams on mount
   useEffect(() => {
     const fetchTeams = async () => {
-      if (!user.tenantId) return;
+      if (!user.tenantId || !user.id) return;
       try {
         setIsLoadingTeams(true);
-        const fetchedTeams = await TeamService.getTeams(user.tenantId);
+        // Only fetch teams assigned to this telecaller
+        const fetchedTeams = await TeamService.getTelecallerTeams(user.id);
         setTeams(fetchedTeams);
+
+        // Auto-select if only 1 team and no selection yet
+        if (fetchedTeams.length >= 1 && !selectedTeamId) {
+          setSelectedTeamId(fetchedTeams[0].id);
+        }
       } catch (error) {
-        console.error('Error loading teams:', error);
+        console.error('Error loading team assignments:', error);
       } finally {
         setIsLoadingTeams(false);
       }
@@ -334,6 +342,7 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
     { name: 'Reports', icon: BarChart3, active: activeSection === 'reports', onClick: () => setActiveSection('reports') },
     { name: 'PTP Alerts', icon: Bell, active: activeSection === 'ptp-alerts', onClick: () => setActiveSection('ptp-alerts') },
     { name: 'Callback Alerts', icon: PhoneCall, active: activeSection === 'callback-alerts', onClick: () => setActiveSection('callback-alerts') },
+    { name: 'Performance Dashboard', icon: History, active: activeSection === 'payment-history', onClick: () => setActiveSection('payment-history') },
     { name: 'Profile', icon: Settings, active: activeSection === 'profile', onClick: () => setActiveSection('profile') },
   ];
 
@@ -448,7 +457,8 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
                 { id: 5, columnName: 'outstandingAmount', displayName: 'Outstanding', isActive: true },
                 { id: 6, columnName: 'emiAmount', displayName: 'EMI Amount', isActive: true },
                 { id: 7, columnName: 'lastPaidDate', displayName: 'Last Paid', isActive: true },
-                { id: 8, columnName: 'latestCallStatus', displayName: 'Call Response', isActive: true }
+                { id: 8, columnName: 'latestCallStatus', displayName: 'Call Response', isActive: true },
+                { id: 9, columnName: 'statusUpdateCount', displayName: 'Status Update count', isActive: true }
               ]}
               isLoading={isLoading}
               tenantId={user.tenantId!}
@@ -543,50 +553,9 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
             user={user}
             teamId={selectedTeamId}
             onCaseClick={(caseItem) => {
-              const details = (caseItem.case_data as Record<string, unknown>) || {};
-              const getValue = (keys: string[]) => {
-                for (const key of keys) {
-                  const val = details[key] || caseItem[key as keyof typeof caseItem];
-                  if (val !== undefined && val !== null && val !== '') return String(val);
-                }
-                return '';
-              };
-
-              const mappedCase: DashboardCustomerCase = {
-                id: caseItem.id || '',
-                tenant_id: user.tenantId || '',
-                customerName: caseItem.customer_name || getValue(['customerName', 'Customer Name']) || '',
-                loanId: caseItem.loan_id || getValue(['loanId', 'loanNumber', 'Loan ID']) || '',
-                mobileNo: caseItem.mobile_no || getValue(['mobileNo', 'mobileNumber', 'Mobile Number']) || '',
-                dpd: caseItem.dpd || Number(getValue(['dpd', 'DPD'])) || 0,
-                outstandingAmount: caseItem.outstanding_amount || getValue(['totalOutstanding', 'outstandingAmount', 'TOTAL OUTSTANDING', 'Total Outstanding', 'pos', 'posAmount']) || '',
-                emiAmount: caseItem.emi_amount || getValue(['emi', 'emiAmount', 'EMI']) || '',
-                lastPaidDate: caseItem.last_paid_date || getValue(['lastPaymentDate', 'lastPaidDate', 'LAST PAYMENT DATE']) || '',
-                loanAmount: caseItem.loan_amount || getValue(['loanAmount', 'Loan Amount']) || '',
-                posAmount: caseItem.pos_amount || getValue(['pos', 'posAmount', 'POS']) || '',
-                pendingDues: caseItem.pending_dues || '',
-                paymentLink: caseItem.payment_link || getValue(['paymentLink', 'Payment Link']) || '',
-                alternateNumber: caseItem.alternate_number || getValue(['alternateNumber', 'Alternate Number']) || '',
-                sanctionDate: caseItem.sanction_date || getValue(['loanCreatedAt', 'sanctionDate', 'LOAN CREATED AT']) || '',
-                lastPaidAmount: caseItem.last_paid_amount || getValue(['lastPaymentAmount', 'lastPaidAmount', 'LAST PAYMENT AMOUNT']) || '',
-                branchName: caseItem.branch_name || '',
-                loanType: caseItem.loan_type || getValue(['loanType', 'Loan Type']) || '',
-                caseStatus: caseItem.case_status || '',
-                address: caseItem.address || getValue(['address', 'Address']) || '',
-                email: caseItem.email || getValue(['email', 'Email']) || '',
-                latest_call_status: caseItem.latest_call_status,
-                latest_ptp_date: caseItem.latest_ptp_date,
-                remarks: caseItem.remarks || '',
-                total_collected_amount: caseItem.total_collected_amount || 0,
-              };
-
+              const mappedCase = mapServiceCaseToDashboardCase(caseItem as unknown as ServiceCustomerCase);
               setSelectedCase(mappedCase);
               setIsCaseDetailsOpen(true);
-
-              if (caseItem.id && user.id) {
-                customerCaseService.markCaseAsViewed(caseItem.id, user.id);
-                setViewedCases(prev => new Set(prev).add(caseItem.id!));
-              }
             }}
           />
         );
@@ -596,50 +565,21 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
             user={user}
             teamId={selectedTeamId}
             onCaseClick={(caseItem) => {
-              const details = (caseItem.case_data as Record<string, unknown>) || {};
-              const getValue = (keys: string[]) => {
-                for (const key of keys) {
-                  const val = details[key] || (caseItem as unknown as Record<string, unknown>)[key];
-                  if (val !== undefined && val !== null && val !== '') return String(val);
-                }
-                return '';
-              };
-
-              const mappedCase: DashboardCustomerCase = {
-                id: caseItem.id || '',
-                tenant_id: user.tenantId || '',
-                customerName: caseItem.customer_name || getValue(['customerName', 'Customer Name']) || '',
-                loanId: caseItem.loan_id || getValue(['loanId', 'loanNumber', 'Loan ID']) || '',
-                mobileNo: caseItem.mobile_no || getValue(['mobileNo', 'mobileNumber', 'Mobile Number']) || '',
-                dpd: caseItem.dpd || Number(getValue(['dpd', 'DPD'])) || 0,
-                outstandingAmount: caseItem.outstanding_amount || getValue(['totalOutstanding', 'outstandingAmount', 'TOTAL OUTSTANDING', 'Total Outstanding', 'pos', 'posAmount']) || '',
-                emiAmount: caseItem.emi_amount || getValue(['emi', 'emiAmount', 'EMI']) || '',
-                lastPaidDate: caseItem.last_paid_date || getValue(['lastPaymentDate', 'lastPaidDate', 'LAST PAYMENT DATE']) || '',
-                loanAmount: caseItem.loan_amount || getValue(['loanAmount', 'Loan Amount']) || '',
-                posAmount: caseItem.pos_amount || getValue(['pos', 'posAmount', 'POS']) || '',
-                pendingDues: caseItem.pending_dues || '',
-                paymentLink: caseItem.payment_link || getValue(['paymentLink', 'Payment Link']) || '',
-                alternateNumber: caseItem.alternate_number || getValue(['alternateNumber', 'Alternate Number']) || '',
-                sanctionDate: caseItem.sanction_date || getValue(['loanCreatedAt', 'sanctionDate', 'LOAN CREATED AT']) || '',
-                lastPaidAmount: caseItem.last_paid_amount || getValue(['lastPaymentAmount', 'lastPaidAmount', 'LAST PAYMENT AMOUNT']) || '',
-                branchName: caseItem.branch_name || '',
-                loanType: caseItem.loan_type || getValue(['loanType', 'Loan Type']) || '',
-                caseStatus: caseItem.case_status || '',
-                address: caseItem.address || getValue(['address', 'Address']) || '',
-                email: caseItem.email || getValue(['email', 'Email']) || '',
-                latest_call_status: caseItem.latest_call_status,
-                latest_ptp_date: caseItem.latest_ptp_date,
-                remarks: caseItem.remarks || '',
-                total_collected_amount: caseItem.total_collected_amount || 0,
-              };
-
+              const mappedCase = mapServiceCaseToDashboardCase(caseItem as unknown as ServiceCustomerCase);
               setSelectedCase(mappedCase);
               setIsCaseDetailsOpen(true);
-
-              if (caseItem.id && user.id) {
-                customerCaseService.markCaseAsViewed(caseItem.id, user.id);
-                setViewedCases(prev => new Set(prev).add(caseItem.id!));
-              }
+            }}
+          />
+        );
+      case 'payment-history':
+        return (
+          <PaymentHistorySection
+            user={user}
+            teamId={selectedTeamId}
+            onCaseClick={(caseItem) => {
+              const mappedCase = mapServiceCaseToDashboardCase(caseItem as unknown as ServiceCustomerCase);
+              setSelectedCase(mappedCase);
+              setIsCaseDetailsOpen(true);
             }}
           />
         );
@@ -782,14 +722,16 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
         headerActions={
           <div className="flex items-center space-x-4">
             <BreakManager />
-            <div className="w-48">
-              <TeamSelector
-                teams={teams}
-                selectedTeamId={selectedTeamId}
-                onTeamChange={setSelectedTeamId}
-                isLoading={isLoadingTeams}
-              />
-            </div>
+            {teams.length > 1 && (
+              <div className="w-48">
+                <TeamSelector
+                  teams={teams}
+                  selectedTeamId={selectedTeamId}
+                  onTeamChange={setSelectedTeamId}
+                  isLoading={isLoadingTeams}
+                />
+              </div>
+            )}
             <AlertButton
               userId={user.id}
               teamId={selectedTeamId}
@@ -802,7 +744,7 @@ export const TelecallerDashboard: React.FC<TelecallerDashboardProps> = ({ user, 
         }
       >
         {renderContent()}
-        <PTPNotificationManager
+        < PTPNotificationManager
           user={user}
           lastUpdate={lastUpdateTimestamp}
           selectedTeamId={selectedTeamId}

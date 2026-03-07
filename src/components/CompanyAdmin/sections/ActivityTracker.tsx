@@ -5,7 +5,6 @@ import {
     Coffee,
     AlertCircle,
     Search,
-    Calendar,
     Filter,
     Download,
     CheckCircle2,
@@ -240,7 +239,7 @@ export const ActivityTracker: React.FC = () => {
         if (!log.rawLoginTime) return log;
 
         const now = currentTime;
-        // const loginTime = new Date(log.rawLoginTime);
+
         const lastActive = log.rawLastActive ? new Date(log.rawLastActive) : new Date();
 
         // Calculate durations in minutes
@@ -254,10 +253,8 @@ export const ActivityTracker: React.FC = () => {
         // We recalculate locally for immediate UI responsiveness:
 
         // 1. Current Session Duration (if online)
-        // let additionalLoggedInMinutes = 0;
         if (log.status !== 'Offline') {
-            // Note: service calculations might already include this if refreshed, but for smooth timer we calc manually
-            // Actually, let's trust the base values from service and just adjust for "Live" status
+            // Logic handled by service base values + adjustments below
         }
 
         const diffMs = now.getTime() - lastActive.getTime();
@@ -360,33 +357,28 @@ export const ActivityTracker: React.FC = () => {
         );
     }
 
-    const handleExport = () => {
-        const headers = ['Employee', 'Team', 'Status', 'Login Time', 'Last Active', 'Total Break', 'Productive Time', 'Idle Time'];
-        const csvContent = [
-            headers.join(','),
-            ...filteredData.map(row => [
-                `"${row.employeeName}"`,
-                `"${row.teamName}"`,
-                row.status,
-                `"${row.loginTime}"`,
-                `"${row.lastActive}"`,
-                `"${row.totalBreakTime}"`,
-                `"${row.productiveTime}"`,
-                `"${row.idleTime}"`
-            ].join(','))
-        ].join('\n');
+    const handleDownloadReport = async (type: 'daily' | 'monthly') => {
+        if (!user?.tenantId) return;
+        try {
+            const csvContent = type === 'daily'
+                ? await activityService.downloadDailyReport(user.tenantId)
+                : await activityService.downloadMonthlyReport(user.tenantId);
 
-        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-        const link = document.createElement('a');
-        if (link.download !== undefined) {
-            const url = URL.createObjectURL(blob);
-            link.setAttribute('href', url);
-            link.setAttribute('download', `activity_report_${new Date().toISOString().split('T')[0]}.csv`);
-            link.style.visibility = 'hidden';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            URL.revokeObjectURL(url);
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
+                link.setAttribute('download', `${type}_activity_report_${new Date().toISOString().split('T')[0]}.csv`);
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }
+        } catch (error) {
+            console.error(`Error downloading ${type} report:`, error);
+            alert(`Failed to download ${type} report`);
         }
     };
 
@@ -416,10 +408,6 @@ export const ActivityTracker: React.FC = () => {
                             </div>
                         </div>
                     )}
-                    <button className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors shadow-sm">
-                        <Calendar className="w-4 h-4" />
-                        Today
-                    </button>
                     <button
                         onClick={handleManualRefresh}
                         disabled={isRefreshing}
@@ -428,13 +416,23 @@ export const ActivityTracker: React.FC = () => {
                         <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
                         Refresh
                     </button>
-                    <button
-                        onClick={handleExport}
-                        className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                    >
-                        <Download className="w-4 h-4" />
-                        Export Report
-                    </button>
+
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => handleDownloadReport('daily')}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                        >
+                            <Download className="w-4 h-4" />
+                            Daily Report
+                        </button>
+                        <button
+                            onClick={() => handleDownloadReport('monthly')}
+                            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors shadow-sm"
+                        >
+                            <Download className="w-4 h-4" />
+                            Monthly Report
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -521,10 +519,8 @@ export const ActivityTracker: React.FC = () => {
                                 <th className="px-6 py-4 font-semibold">Employee</th>
                                 <th className="px-6 py-4 font-semibold">Status</th>
                                 <th className="px-6 py-4 font-semibold">Login Time</th>
-                                <th className="px-6 py-4 font-semibold">Last Active</th>
                                 <th className="px-6 py-4 font-semibold">Total Break</th>
                                 <th className="px-6 py-4 font-semibold">Productive Time</th>
-                                <th className="px-6 py-4 font-semibold">Idle Time</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-gray-200">
@@ -557,21 +553,18 @@ export const ActivityTracker: React.FC = () => {
                                             </span>
                                         </td>
                                         <td className="px-6 py-4 text-sm text-gray-600">{log.loginTime}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-600">{log.lastActive}</td>
-                                        <td className="px-6 py-4 text-sm text-gray-600">{log.totalBreakTime}</td>
+                                        <td className="px-6 py-4 text-sm text-gray-600">
+                                            {log.totalBreakTime} <span className="text-xs text-gray-400">({log.breakCount || 0})</span>
+                                        </td>
                                         <td className="px-6 py-4">
                                             <span className="text-sm font-medium text-green-600">{log.productiveTime}</span>
                                         </td>
-                                        <td className="px-6 py-4">
-                                            <span className={`text-sm font-medium ${log.idleTime !== '0m' ? 'text-red-500' : 'text-gray-400'}`}>
-                                                {log.idleTime}
-                                            </span>
-                                        </td>
+
                                     </tr>
                                 ))
                             ) : (
                                 <tr>
-                                    <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                                    <td colSpan={5} className="px-6 py-12 text-center text-gray-500">
                                         <div className="flex flex-col items-center justify-center">
                                             <Search className="w-12 h-12 text-gray-300 mb-3" />
                                             <p className="text-lg font-medium">No activity logs found</p>
@@ -583,7 +576,7 @@ export const ActivityTracker: React.FC = () => {
                             {/* Sentinel for infinite scroll */}
                             {hasMore && !loading && (
                                 <tr ref={observerTarget}>
-                                    <td colSpan={7} className="py-4 text-center">
+                                    <td colSpan={5} className="py-4 text-center">
                                         {isLoadMore ? (
                                             <div className="flex justify-center items-center gap-2">
                                                 <div className="w-4 h-4 border-2 border-blue-600 border-t-transparent rounded-full animate-spin"></div>

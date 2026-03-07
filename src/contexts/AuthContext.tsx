@@ -35,6 +35,9 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
   const [isLoading, setIsLoading] = useState(true);
   const [lastNotificationTime, setLastNotificationTime] = useState(0);
 
+  // Debug log to confirm latest version
+  useEffect(() => { console.log('🔥 AuthContext v2.0 loaded - ResumeSession Fix'); }, []);
+
   useEffect(() => {
     const storedUser = sessionStorage.getItem(USER_STORAGE_KEY);
     if (storedUser) {
@@ -87,8 +90,8 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
       // Track activity (independent of audit logging)
       try {
         const role = user.role?.toLowerCase() || '';
-        // Only track activity for Telecallers and Team Incharges (case-insensitive check)
-        if (role === 'telecaller' || role === 'teamincharge' || role === 'team incharge' || role === 'companyadmin') {
+        // Only track activity for Telecallers, Team Incharges, and Company Admins
+        if (role === 'telecaller' || role === 'teamincharge' || role === 'team incharge' || role === 'companyadmin' || role === 'admin' || role === 'superadmin') {
           console.log('📝 Tracking logout for role:', user.role);
           await activityService.trackLogout(user.id, validReason);
         } else {
@@ -110,14 +113,15 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
     if (!user?.id || !user?.tenantId) return;
 
     const role = user.role?.toLowerCase() || '';
-    if (role !== 'telecaller' && role !== 'teamincharge' && role !== 'team incharge' && role !== 'companyadmin') {
+    if (role !== 'telecaller' && role !== 'teamincharge' && role !== 'team incharge' && role !== 'companyadmin' && role !== 'admin' && role !== 'superadmin') {
       return;
     }
 
     console.log('🔄 Performing initial activity restoration for:', user.id);
     const lastUpdateKey = `last_activity_update_${user.id}`;
     localStorage.removeItem(lastUpdateKey);
-    activityService.updateLastActive(user.id, user.tenantId, true).catch(console.error);
+    // Use resumeSession to ensure user is marked Online even if currently Offline
+    activityService.resumeSession(user.id, user.tenantId).catch(console.error);
   }, [user?.id, user?.tenantId, user?.role]);
 
   // 2. Periodic Heartbeat and Auto-logout logic
@@ -315,7 +319,7 @@ export const AuthProvider: React.FC<{ children: ReactNode; initialUser?: User | 
         // Password and Role are valid - now track login activity
         try {
           const roleNormalized = actualRole.toLowerCase();
-          if (roleNormalized === 'telecaller' || roleNormalized === 'teamincharge' || roleNormalized === 'team incharge' || roleNormalized === 'companyadmin') {
+          if (roleNormalized === 'telecaller' || roleNormalized === 'teamincharge' || roleNormalized === 'team incharge' || roleNormalized === 'companyadmin' || roleNormalized === 'admin' || roleNormalized === 'superadmin') {
             console.log('📝 Tracking login activity for verified role:', actualRole);
             await activityService.resumeSession(authenticatedUser.id, authenticatedUser.tenantId!);
           }

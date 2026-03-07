@@ -7,6 +7,7 @@ import { PaymentReceivedModal } from './PaymentReceivedModal';
 import { WhatsAppModal } from './WhatsAppModal';
 import { useCelebration } from '../../contexts/CelebrationContext';
 import { AlertService } from '../../services/alertService';
+import { columnConfigService, ColumnConfiguration } from '../../services/columnConfigService';
 
 interface CaseDetailsModalProps {
   isOpen: boolean;
@@ -42,6 +43,7 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
   const [newAddress, setNewAddress] = useState('');
   const [isRetained, setIsRetained] = useState(caseData?.is_retained || false);
   const [isRetaining, setIsRetaining] = useState(false);
+  const [customColumnConfigs, setCustomColumnConfigs] = useState<ColumnConfiguration[]>([]);
 
   // Memoized field definitions
   const loanFields = React.useMemo(() => [
@@ -59,11 +61,28 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
   const allAdditionalFields = React.useMemo(() => {
     if (!currentCaseData) return [];
 
-    // Get custom fields from currentCaseData
     const customFields = (currentCaseData?.custom_fields || {}) as Record<string, unknown>;
+
+    // If admin has configured custom columns, use those as the source of truth
+    if (customColumnConfigs.length > 0) {
+      // Build entries from admin-configured columns, pulling value from custom_fields (or show empty)
+      const configuredEntries: [string, unknown][] = customColumnConfigs.map(col => [
+        col.display_name,
+        customFields[col.column_name] ?? customFields[col.display_name] ?? ''
+      ]);
+
+      // Also surface any extra keys in custom_fields that aren't covered by the config
+      const configuredKeys = new Set(customColumnConfigs.flatMap(col => [col.column_name, col.display_name]));
+      const extraEntries: [string, unknown][] = Object.entries(customFields).filter(
+        ([key]) => !configuredKeys.has(key)
+      );
+
+      return [...configuredEntries, ...extraEntries];
+    }
+
+    // Fallback: no column configs fetched – show raw custom_fields + unknown case fields
     const customFieldsEntries = Object.entries(customFields);
 
-    // Get additional details from main case data
     const additionalDetails = Object.entries(currentCaseData as unknown as Record<string, unknown>)
       .filter(([key, value]) => {
         if (!key || value === null || value === undefined || value === '' ||
@@ -75,14 +94,12 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
 
         const normalizeKey = (k: string) => k.toLowerCase().replace(/[\s_]+/g, '');
         const knownKeys = [
-          // Customer and Loan fields
           'customerName', 'loanId', 'mobileNo', 'employmentType', 'loanAmount', 'address', 'city', 'state', 'pincode',
           'dpd', 'pos', 'emi', 'totalOutstanding', 'paymentLink', 'lastPaymentDate', 'lastPaymentAmount', 'loanCreatedAt',
           'empId', 'id', 'remarks', 'outstandingAmount', 'emiAmount', 'posAmount', 'caseStatus',
           'lastPaidDate', 'sanctionDate', 'lastPaidAmount', 'Last Paid Date', 'Sanction Date', 'Last Paid Amount',
           'last payment date', 'last payment amount', 'loan created at', 'totalCollectedAmount', 'total_collected_amount',
           'buckets', 'Buckets', 'Bucket',
-          // Database internal fields (normalized versions)
           'tenantid', 'assignedemployeeid', 'priority', 'uploadedby', 'teamid', 'productname',
           'createdat', 'updatedat', 'telecallerid', 'status', 'employeeid'
         ].map(normalizeKey);
@@ -91,9 +108,8 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
         return !knownKeys.includes(normalizedKey);
       });
 
-    // Combine both custom fields and additional details
     return [...customFieldsEntries, ...additionalDetails];
-  }, [currentCaseData]);
+  }, [currentCaseData, customColumnConfigs]);
 
   const customFieldsCount = React.useMemo(() =>
     Object.entries((currentCaseData?.custom_fields || {}) as Record<string, unknown>).length,
@@ -127,8 +143,6 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
       setCurrentCaseData(caseData);
       setIsRetained(caseData.is_retained || false);
 
-      // Fetch fresh data to ensure we have the latest custom_fields
-      // This fixes the issue where closing and reopening the modal might show stale data
       const fetchFreshData = async () => {
         try {
           const freshData = await customerCaseService.getCaseById(caseData.id);
@@ -139,12 +153,26 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
       };
       fetchFreshData();
 
+      // Fetch admin-configured custom columns so Additional Details always shows them
+      const fetchCustomColumns = async () => {
+        try {
+          if (user.tenantId) {
+            const productName = (caseData as unknown as Record<string, unknown>).product_name as string | undefined;
+            const configs = await columnConfigService.getCustomColumns(user.tenantId, productName);
+            setCustomColumnConfigs(configs);
+          }
+        } catch (error) {
+          console.error('Error fetching custom column configs:', error);
+        }
+      };
+      fetchCustomColumns();
+
       fetchCallLogs();
       if (user.id) {
         AlertService.markAsViewed(caseData.id, user.id);
       }
     }
-  }, [isOpen, caseData, user.id, fetchCallLogs]);
+  }, [isOpen, caseData, user.id, user.tenantId, fetchCallLogs]);
 
   const handleStatusUpdateSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -265,7 +293,8 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
       'RTP': { label: 'Refuse to Pay', color: 'bg-red-100 text-red-700' },
       'NC': { label: 'No Contact', color: 'bg-gray-100 text-gray-700' },
       'CD': { label: 'Call Disconnected', color: 'bg-gray-100 text-gray-700' },
-      'INC': { label: 'Incoming Call', color: 'bg-purple-100 text-purple-700' }
+      'INC': { label: 'Incoming Call', color: 'bg-purple-100 text-purple-700' },
+      'DISPUTE': { label: 'Dispute', color: 'bg-red-100 text-red-700' }
     };
 
     const config = statusConfig[status] || { label: status, color: 'bg-gray-100 text-gray-700' };
@@ -714,24 +743,35 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
                     </div>
                   ) : (
                     allAdditionalFields.map(([key, value], index) => {
-                      const displayName = key
-                        .replace(/([A-Z])/g, ' $1')
-                        .replace(/_/g, ' ')
-                        .replace(/^./, str => str.toUpperCase())
-                        .trim();
+                      // When using admin-configured columns, `key` is already the display_name
+                      // For fallback/raw fields, format from camelCase/snake_case
+                      const displayName = customColumnConfigs.length > 0 && index < customColumnConfigs.length
+                        ? key  // already a human-readable display_name from the config
+                        : key
+                            .replace(/([A-Z])/g, ' $1')
+                            .replace(/_/g, ' ')
+                            .replace(/^./, str => str.toUpperCase())
+                            .trim();
 
-                      // Check if this is a custom field (from custom_fields object)
-                      const isCustomField = index < customFieldsCount;
+                      const isEmpty = value === null || value === undefined || value === '';
+
+                      // Admin-configured columns are not individually deletable from the case
+                      // (they exist as column definitions, not as uploaded case data).
+                      // Only allow delete for raw custom_fields that exist in the case data.
+                      const isCustomField = customColumnConfigs.length === 0 && index < customFieldsCount;
 
                       return (
-                        <div key={key} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg relative">
-                          <FileText className="w-4 h-4 text-purple-500 flex-shrink-0" />
+                        <div key={`${key}-${index}`} className="flex items-center space-x-3 p-3 bg-gray-50 rounded-lg relative">
+                          <FileText className={`w-4 h-4 flex-shrink-0 ${isEmpty ? 'text-gray-300' : 'text-purple-500'}`} />
                           <div className="flex-1 min-w-0">
                             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
                               {displayName}
                             </div>
-                            <div className="text-sm text-gray-900 break-words">
-                              {String(value)}
+                            <div className="text-sm break-words">
+                              {isEmpty
+                                ? <span className="text-gray-400 italic">Not provided</span>
+                                : <span className="text-gray-900">{String(value)}</span>
+                              }
                             </div>
                           </div>
                           {isCustomField && (
@@ -956,6 +996,7 @@ export const CaseDetailsModal: React.FC<CaseDetailsModalProps> = ({ isOpen, onCl
                     <option value="NC">NC (No Contact)</option>
                     <option value="CD">CD (Call Disconnected)</option>
                     <option value="INC">INC (Incoming Call)</option>
+                    <option value="DISPUTE">Dispute</option>
                   </select>
                 </div>
 

@@ -96,9 +96,9 @@ export const CasesModal: React.FC<CasesModalProps> = ({ isOpen, onClose, user })
     // Apply search filter
     if (searchTerm) {
       filtered = filtered.filter(case_ =>
-        case_.customer_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        case_.loan_id?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        case_.mobile_no?.includes(searchTerm)
+        String(case_.customer_name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(case_.loan_id || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+        String(case_.mobile_no || '').includes(searchTerm)
       );
     }
 

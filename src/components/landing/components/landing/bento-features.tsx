@@ -58,7 +58,7 @@ export default function BentoFeatures() {
             transition={{ delay: 0.1 }}
             className="text-xl text-gray-500 font-medium"
           >
-            Ditch the spreadsheets. Shakthi provides the high-fidelity oversight required for modern debt recovery operations.
+            Experience the future of debt recovery with Shakthi. Achieve high-fidelity oversight and real-time efficiency with a platform designed for modern teams.
           </motion.p>
         </div>
 
